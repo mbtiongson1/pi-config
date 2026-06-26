@@ -17,6 +17,10 @@ Ask if the user wants to:
 - Sync (push current ~/.pi/agent/ state back to the repo)
 
 Then carry out whichever they choose.
+
+After an Update or Reinstall, check the `optional-packages.json` file in the repo.
+If any packages listed there are not currently installed in `~/.pi/agent/settings.json`,
+ask the user if they would like to install them.
 ```
 
 ---
@@ -60,6 +64,7 @@ Skip auth.json, models.json, trust.json, and sessions/.
 | `prompts/` | Prompt templates |
 | `bin/` | Utility scripts |
 | `settings.json.template` | Base settings — fill in your provider + models |
+| `optional-packages.json` | List of optional packages/extensions to prompt for installation |
 
 ## What's NOT Committed (stays local)
 
