@@ -1,0 +1,32 @@
+## Sensitive/Local Files
+auth.json
+models.json
+sessions/
+*.log
+.env
+.env.local
+
+## Platform Files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+## Editor/IDE
+.vscode/
+.idea/
+*.sublime-*
+
+## Node/Npm
+node_modules/
+package-lock.json
+yarn.lock
+
+## Cache
+.cache/
+*.tmp
+
+## System
+$RECYCLE.BIN/
+.Trash*
