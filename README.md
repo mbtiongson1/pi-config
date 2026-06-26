@@ -7,9 +7,17 @@ Portable, reproducible pi setup with custom agents, extensions, and prompts.
 
 ## Pi Agent Prompt
 
-Drop this into any pi agent to get started:
+```
+You are helping Marco manage his pi config
+from https://github.com/mbtiongson1/pi-config.
 
-> You are helping Marco manage his pi config from https://github.com/mbtiongson1/pi-config — ask if he wants to Update (add/overwrite files from repo), Reinstall (clean copy to ~/.pi/agent/), or Sync (push current ~/.pi/agent/ state back to the repo).
+Ask if he wants to:
+- Update (pull latest and layer over existing config)
+- Reinstall (clean wipe, then copy fresh from repo)
+- Sync (push current ~/.pi/agent/ state back to the repo)
+
+Then carry out whichever he chooses.
+```
 
 ---
 
@@ -17,47 +25,29 @@ Drop this into any pi agent to get started:
 
 **Update** — pull latest and layer over existing config (additive, won't delete anything):
 
-```bash
-git -C ~/pi-config pull && \
-cp -r ~/pi-config/agents \
-      ~/pi-config/extensions \
-      ~/pi-config/prompts \
-      ~/pi-config/bin \
-      ~/.pi/agent/
+```
+Pull the latest from https://github.com/mbtiongson1/pi-config
+and copy agents, extensions, prompts, and bin
+into ~/.pi/agent/ without removing anything already there.
 ```
 
 **Reinstall** — clean wipe, then copy fresh from repo:
 
-```bash
-git clone https://github.com/mbtiongson1/pi-config.git ~/pi-config 2>/dev/null \
-  || git -C ~/pi-config pull && \
-rm -rf ~/.pi/agent/agents \
-       ~/.pi/agent/extensions \
-       ~/.pi/agent/prompts \
-       ~/.pi/agent/bin && \
-cp -r ~/pi-config/agents \
-      ~/pi-config/extensions \
-      ~/pi-config/prompts \
-      ~/pi-config/bin \
-      ~/.pi/agent/ && \
-cp ~/pi-config/settings.json.template ~/.pi/agent/settings.json
+```
+Clone https://github.com/mbtiongson1/pi-config (or pull if already cloned),
+wipe ~/.pi/agent/agents, extensions, prompts, and bin,
+then copy them fresh from the repo.
+Also reset settings.json from the template.
 ```
 
 **Sync** — push current `~/.pi/agent/` state back to the repo:
 
-```bash
-cp -r ~/.pi/agent/agents \
-      ~/.pi/agent/extensions \
-      ~/.pi/agent/prompts \
-      ~/.pi/agent/bin \
-      ~/pi-config/ && \
-cd ~/pi-config && \
-git add -A && \
-git commit -m "sync: $(date +%Y-%m-%d)" && \
-git push
 ```
-
-> **Windows (PowerShell)?** Replace `~` with `$env:USERPROFILE`, `/` with `\`, and `\` continuations with `` ` ``.
+Copy agents, extensions, prompts, and bin
+from ~/.pi/agent/ into the local pi-config repo,
+then commit and push to https://github.com/mbtiongson1/pi-config.
+Skip auth.json, models.json, trust.json, and sessions/.
+```
 
 ---
 
