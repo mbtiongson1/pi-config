@@ -1,8 +1,6 @@
 {
   "lastChangelogVersion": "0.80.2",
   "theme": "dark",
-  "defaultProvider": "hai-proxy",
-  "defaultModel": "anthropic--claude-4.5-haiku",
   "defaultThinkingLevel": "medium",
   "hideThinkingBlock": false,
   "terminal": {
@@ -11,10 +9,5 @@
   "steeringMode": "one-at-a-time",
   "packages": [
     "git:github.com/crustyhacker/pi-zerg-swarm"
-  ],
-  "enabledModels": [
-    "hai-proxy/anthropic--claude-4.6-sonnet",
-    "hai-proxy/anthropic--claude-4.6-opus",
-    "hai-proxy/anthropic--claude-4.5-haiku"
   ]
 }

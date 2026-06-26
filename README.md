@@ -11,8 +11,7 @@ Minimal, reproducible pi configuration for vanilla setup with custom extensions 
 - **extensions/** - Custom extensions
 - **prompts/** - Custom prompt templates
 - **bin/** - Utility scripts
-- **settings.json.template** - Base settings (copy to `~/.pi/agent/settings.json` and customize)
-- **trust.json** - Trust configuration
+- **settings.json.template** - Base settings (customize with your provider and models)
 
 ## Installation
 
@@ -29,17 +28,17 @@ cp settings.json.template ~/.pi/agent/settings.json
 cp trust.json ~/.pi/agent/trust.json
 ```
 
-3. Configure `~/.pi/agent/settings.json` with your preferred provider and models
+3. Edit `~/.pi/agent/settings.json` to add your provider/models config (see [pi.dev docs](https://pi.dev))
 
 4. Restart pi
 
 ## What's NOT Included
 
-- `auth.json` - API keys and authentication (keep local only)
-- `models.json` - Provider configuration (set up locally)
-- `sessions/` - Session histories
-- HAI-proxy custom setup - Use vanilla pi providers
-- Any sensitive credentials
+- `auth.json` - API keys and authentication (local only)
+- `models.json` - Provider configuration (local setup)
+- `sessions/` - Session histories  
+- `trust.json` - Local trust allowlist
+- Any sensitive credentials or custom proxy configs
 
 ## For Pi Agents
 

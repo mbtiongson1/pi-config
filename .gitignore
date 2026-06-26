@@ -2,6 +2,7 @@
 auth.json
 models.json
 sessions/
+trust.json
 *.log
 .env
 .env.local
