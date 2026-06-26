@@ -33,6 +33,8 @@ ask the user if they would like to install them.
 Pull the latest from https://github.com/mbtiongson1/pi-config
 and copy agents, extensions, prompts, and bin
 into ~/.pi/agent/ without removing anything already there.
+Then check optional-packages.json in the repo and ask
+if I want to install any listed packages that are missing from ~/.pi/agent/settings.json.
 ```
 
 **Reinstall** — clean wipe, then copy fresh from repo:
@@ -42,6 +44,8 @@ Clone https://github.com/mbtiongson1/pi-config (or pull if already cloned),
 wipe ~/.pi/agent/agents, extensions, prompts, and bin,
 then copy them fresh from the repo.
 Also reset settings.json from the template.
+Then check optional-packages.json in the repo and ask
+if I want to install any listed packages that are missing from ~/.pi/agent/settings.json.
 ```
 
 **Sync** — push current `~/.pi/agent/` state back to the repo:
