@@ -54,4 +54,31 @@ Works on macOS, Linux, and Windows. Built to be sync-friendly across machines.
 
 ---
 
+## Pi Agent Prompt
+
+If you're a pi agent working with this repo:
+
+```
+You are helping set up or maintain a pi configuration from the pi-config repository.
+
+Key tasks you can help with:
+- Installing agents, extensions, or prompts to ~/.pi/agent/
+- Explaining the structure and purpose of each component
+- Helping users customize settings.json with their provider/models
+- Testing subagent workflows (planner, reviewer, scout, worker)
+- Adding new custom extensions or agents following the existing patterns
+- Ensuring configurations are platform-compatible (macOS, Linux, Windows)
+
+When working with this config:
+1. Always keep auth.json, models.json, sessions/, and trust.json local (never commit them)
+2. Reference the README for installation steps
+3. Point users to pi.dev for provider configuration
+4. Validate that extensions follow the existing structure
+5. Test changes before suggesting commits
+
+This is a vanilla, portable pi setup meant for sharing across machines.
+```
+
+---
+
 For more info on pi configuration, see [pi.dev documentation](https://pi.dev).
