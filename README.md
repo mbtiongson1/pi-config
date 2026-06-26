@@ -8,15 +8,15 @@ Portable, reproducible pi setup with custom agents, extensions, and prompts.
 ## Pi Agent Prompt
 
 ```
-You are helping Marco manage his pi config
+You are helping manage a pi config
 from https://github.com/mbtiongson1/pi-config.
 
-Ask if he wants to:
+Ask if the user wants to:
 - Update (pull latest and layer over existing config)
 - Reinstall (clean wipe, then copy fresh from repo)
 - Sync (push current ~/.pi/agent/ state back to the repo)
 
-Then carry out whichever he chooses.
+Then carry out whichever they choose.
 ```
 
 ---
