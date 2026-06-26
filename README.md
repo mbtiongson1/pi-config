@@ -1,84 +1,55 @@
-# Pi Configuration
+# Pi Config — mbtiongson1
 
-Minimal, reproducible pi configuration for vanilla setup with custom extensions and subagents.
-
-**Author:** mbtiongson1  
-**Docs:** [pi.dev](https://pi.dev)
-
-## Contents
-
-- **agents/** - Custom subagents (planner, reviewer, scout, worker)
-- **extensions/** - Custom extensions
-- **prompts/** - Custom prompt templates
-- **bin/** - Utility scripts
-- **settings.json.template** - Base settings (customize with your provider and models)
-
-## Installation
-
-1. Clone this repo:
-```bash
-git clone https://github.com/mbtiongson1/pi-config.git
-cd pi-config
-```
-
-2. Copy to your pi config directory:
-```bash
-cp -r agents extensions prompts bin ~/.pi/agent/
-cp settings.json.template ~/.pi/agent/settings.json
-cp trust.json ~/.pi/agent/trust.json
-```
-
-3. Edit `~/.pi/agent/settings.json` to add your provider/models config (see [pi.dev docs](https://pi.dev))
-
-4. Restart pi
-
-## What's NOT Included
-
-- `auth.json` - API keys and authentication (local only)
-- `models.json` - Provider configuration (local setup)
-- `sessions/` - Session histories  
-- `trust.json` - Local trust allowlist
-- Any sensitive credentials or custom proxy configs
-
-## For Pi Agents
-
-When using pi agents to work with this config:
-- All core extensions are in `extensions/subagent/`
-- All subagents are defined in `agents/`
-- Use relative paths within this structure
-- Settings should reference only public/configurable aspects
-
-## Platform Support
-
-Works on macOS, Linux, and Windows. Built to be sync-friendly across machines.
+Portable, reproducible pi setup with custom agents, extensions, and prompts.  
+**Repo:** `https://github.com/mbtiongson1/pi-config`
 
 ---
 
 ## Pi Agent Prompt
 
-If you're a pi agent working with this repo:
+> Drop this into any pi agent to get started:
 
 ```
-You are helping set up or maintain a pi configuration from the pi-config repository.
-
-Key tasks you can help with:
-- Installing agents, extensions, or prompts to ~/.pi/agent/
-- Explaining the structure and purpose of each component
-- Helping users customize settings.json with their provider/models
-- Testing subagent workflows (planner, reviewer, scout, worker)
-- Adding new custom extensions or agents following the existing patterns
-- Ensuring configurations are platform-compatible (macOS, Linux, Windows)
-
-When working with this config:
-1. Always keep auth.json, models.json, sessions/, and trust.json local (never commit them)
-2. Reference the README for installation steps
-3. Point users to pi.dev for provider configuration
-4. Validate that extensions follow the existing structure
-5. Test changes before suggesting commits
-
-This is a vanilla, portable pi setup meant for sharing across machines.
+You are helping Marco manage his pi config from https://github.com/mbtiongson1/pi-config — ask if he wants to Update (add/overwrite files from repo), Reinstall (clean copy to ~/.pi/agent/), or Sync (push current ~/.pi/agent/ state back to the repo).
 ```
 
 ---
 
-For more info on pi configuration, see [pi.dev documentation](https://pi.dev).
+## Quick One-Liners
+
+**Update** — pull latest from repo and layer it over your existing config (additive, won't delete anything):
+```bash
+git -C ~/pi-config pull && cp -r ~/pi-config/agents ~/pi-config/extensions ~/pi-config/prompts ~/pi-config/bin ~/.pi/agent/
+```
+
+**Reinstall** — clean wipe of agents/extensions/prompts/bin, then copy fresh from repo:
+```bash
+git clone https://github.com/mbtiongson1/pi-config.git ~/pi-config 2>/dev/null || git -C ~/pi-config pull && rm -rf ~/.pi/agent/agents ~/.pi/agent/extensions ~/.pi/agent/prompts ~/.pi/agent/bin && cp -r ~/pi-config/agents ~/pi-config/extensions ~/pi-config/prompts ~/pi-config/bin ~/.pi/agent/ && cp ~/pi-config/settings.json.template ~/.pi/agent/settings.json
+```
+
+**Sync** — push your current `~/.pi/agent/` state back up to the repo (excludes secrets):
+```bash
+cp -r ~/.pi/agent/agents ~/.pi/agent/extensions ~/.pi/agent/prompts ~/.pi/agent/bin ~/pi-config/ && cd ~/pi-config && git add -A && git commit -m "sync: $(date +%Y-%m-%d)" && git push
+```
+
+> **Windows (PowerShell)?** Replace `~` with `$env:USERPROFILE` and `/` with `\`.
+
+---
+
+## What's in the Repo
+
+| Path | Purpose |
+|------|---------|
+| `agents/` | Custom subagents (planner, reviewer, scout, worker) |
+| `extensions/` | Custom pi extensions |
+| `prompts/` | Prompt templates |
+| `bin/` | Utility scripts |
+| `settings.json.template` | Base settings — fill in your provider + models |
+
+## What's NOT Committed (stays local)
+
+`auth.json` · `models.json` · `trust.json` · `sessions/` · any API keys or proxy config
+
+---
+
+For provider/model setup, see [pi.dev docs](https://pi.dev).
