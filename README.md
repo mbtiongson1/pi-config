@@ -13,19 +13,51 @@ Drop this into any pi agent to get started:
 
 ---
 
-## Quick Agent One-Liners
+## Quick One-Liners
 
-**Update** — pull latest and layer it over your existing config (additive, won't delete anything):
+**Update** — pull latest and layer over existing config (additive, won't delete anything):
 
-> Pull the latest from https://github.com/mbtiongson1/pi-config and copy agents, extensions, prompts, and bin over to ~/.pi/agent/ without removing anything that's already there.
+```bash
+git -C ~/pi-config pull && \
+cp -r ~/pi-config/agents \
+      ~/pi-config/extensions \
+      ~/pi-config/prompts \
+      ~/pi-config/bin \
+      ~/.pi/agent/
+```
 
-**Reinstall** — clean wipe of agents/extensions/prompts/bin, then copy fresh from repo:
+**Reinstall** — clean wipe, then copy fresh from repo:
 
-> Clone https://github.com/mbtiongson1/pi-config (or pull if already cloned), wipe ~/.pi/agent/agents, extensions, prompts, and bin, then copy them fresh from the repo. Also reset settings.json from the template.
+```bash
+git clone https://github.com/mbtiongson1/pi-config.git ~/pi-config 2>/dev/null \
+  || git -C ~/pi-config pull && \
+rm -rf ~/.pi/agent/agents \
+       ~/.pi/agent/extensions \
+       ~/.pi/agent/prompts \
+       ~/.pi/agent/bin && \
+cp -r ~/pi-config/agents \
+      ~/pi-config/extensions \
+      ~/pi-config/prompts \
+      ~/pi-config/bin \
+      ~/.pi/agent/ && \
+cp ~/pi-config/settings.json.template ~/.pi/agent/settings.json
+```
 
-**Sync** — push your current `~/.pi/agent/` state back up to the repo:
+**Sync** — push current `~/.pi/agent/` state back to the repo:
 
-> Copy the current agents, extensions, prompts, and bin from ~/.pi/agent/ into the local pi-config repo, then commit and push to https://github.com/mbtiongson1/pi-config. Skip auth.json, models.json, trust.json, and sessions/.
+```bash
+cp -r ~/.pi/agent/agents \
+      ~/.pi/agent/extensions \
+      ~/.pi/agent/prompts \
+      ~/.pi/agent/bin \
+      ~/pi-config/ && \
+cd ~/pi-config && \
+git add -A && \
+git commit -m "sync: $(date +%Y-%m-%d)" && \
+git push
+```
+
+> **Windows (PowerShell)?** Replace `~` with `$env:USERPROFILE`, `/` with `\`, and `\` continuations with `` ` ``.
 
 ---
 
