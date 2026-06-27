@@ -2,5 +2,9 @@
   {
     "package": "npm:@yofriadi/pi-antigravity-oauth",
     "description": "Antigravity OAuth extension for authentication"
+  },
+  {
+    "package": "npm:pi-antigravity-quota",
+    "description": "Pi extension to check Google Cloud Code (Antigravity) model quotas"
   }
 ]
