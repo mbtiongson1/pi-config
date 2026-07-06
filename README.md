@@ -15,7 +15,7 @@ Ask if the user wants to:
 - Update (pull latest and layer over existing config)
 - Reinstall (clean wipe, then copy fresh from repo)
 - Sync (push current ~/.pi/agent/ state back to the repo)
-- Diff (compare local to remote before making changes)
+- Diff (show differences between ~/.pi/agent/ and the repo)
 
 Then carry out whichever they choose.
 
@@ -58,21 +58,12 @@ then commit and push to https://github.com/mbtiongson1/pi-config.
 Skip auth.json, models.json, trust.json, and sessions/.
 ```
 
-**Diff** — preview what will change:
+**Diff** — show differences between `~/.pi/agent/` and the repo:
 
 ```
-Clone https://github.com/mbtiongson1/pi-config into a temp dir and compare
-it with ~/.pi/agent/ to show what will be added, removed, or changed.
-```
-
----
-
-## Environment Variables
-
-For the best caching behavior (1-hour cache retention), add the following to your `~/.bashrc` or `~/.profile`:
-
-```bash
-export PI_CACHE_RETENTION=long
+Show differences between the installed files in ~/.pi/agent/
+and the local repository /Users/marcotiongson/Documents/pi-config/
+by diffing agents, extensions, prompts, and bin.
 ```
 
 ---
@@ -81,32 +72,12 @@ export PI_CACHE_RETENTION=long
 
 | Path | Purpose |
 |------|---------|
-| `agents/` | Custom subagents — declare `role:` instead of model strings |
-| `extensions/` | Custom pi extensions (subagent extension with role-template support) |
+| `agents/` | Custom subagents (planner, reviewer, scout, worker) |
+| `extensions/` | Custom pi extensions |
 | `prompts/` | Prompt templates |
 | `bin/` | Utility scripts |
-| `agent-templates.json` | Role → model + thinking-level map. Copy to `~/.pi/agent/` |
 | `settings.json.template` | Base settings — fill in your provider + models |
 | `optional-packages.json` | List of optional packages/extensions to prompt for installation |
-
-## Subagent Role Templates
-
-Agents declare a  (planner, worker, scout, reviewer) instead of a hardcoded model.
-The role resolves model + thinking level from .
-
-Built-in thinking-level defaults (no config needed just for thinking):
-
-| Role     | Thinking level |
-|----------|----------------|
-| planner  |          |
-| worker   |        |
-| scout    |       |
-| reviewer |           |
-
-Copy  to  and fill in your model strings.
-Full guide: [docs/subagent-thinking-levels.md](docs/subagent-thinking-levels.md)
-
----
 
 ## What's NOT Committed (stays local)
 

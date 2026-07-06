@@ -15,6 +15,7 @@ When this skill is invoked:
    - **Update** (pull latest and layer over existing config)
    - **Reinstall** (clean wipe, then copy fresh from repo)
    - **Sync** (push current `~/.pi/agent/` state back to the repo)
+   - **Diff** (show differences between ~/.pi/agent/ and the repo)
 2. Carry out whichever they choose by running the commands below.
 
 ### Action 1: Update
@@ -77,6 +78,18 @@ Steps to execute:
    git add agents/ extensions/ prompts/ bin/
    git commit -m "Sync: update pi-config configuration"
    git push origin main
+   ```
+
+### Action 4: Diff
+Show differences between the installed files in `~/.pi/agent/` and the local repository `/Users/marcotiongson/Documents/pi-config/`.
+
+Steps to execute:
+1. Compare agents, extensions, prompts, and bin:
+   ```bash
+   for dir in agents extensions prompts bin; do
+     echo "=== Diff for $dir ==="
+     diff -ru ~/.pi/agent/$dir/ /Users/marcotiongson/Documents/pi-config/$dir/ || true
+   done
    ```
 
 ---
