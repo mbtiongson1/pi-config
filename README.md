@@ -15,6 +15,7 @@ Ask if the user wants to:
 - Update (pull latest and layer over existing config)
 - Reinstall (clean wipe, then copy fresh from repo)
 - Sync (push current ~/.pi/agent/ state back to the repo)
+- Diff (show differences between ~/.pi/agent/ and the repo)
 
 Then carry out whichever they choose.
 
@@ -55,6 +56,14 @@ Copy agents, extensions, prompts, and bin
 from ~/.pi/agent/ into the local pi-config repo,
 then commit and push to https://github.com/mbtiongson1/pi-config.
 Skip auth.json, models.json, trust.json, and sessions/.
+```
+
+**Diff** — show differences between `~/.pi/agent/` and the repo:
+
+```
+Show differences between the installed files in ~/.pi/agent/
+and the local repository /Users/marcotiongson/Documents/pi-config/
+by diffing agents, extensions, prompts, and bin.
 ```
 
 ---
