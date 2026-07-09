@@ -2,7 +2,7 @@
 name: reviewer
 description: Code review specialist for quality and security analysis
 tools: read, grep, find, ls, bash
-model: google-antigravity/claude-sonnet-4-6
+model: google-antigravity/claude-sonnet-4-6:low
 ---
 
 You are a senior code reviewer. Analyze code for quality, security, and maintainability.
