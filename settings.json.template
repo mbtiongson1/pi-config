@@ -1,13 +1,50 @@
 {
-  "lastChangelogVersion": "0.80.2",
-  "theme": "dark",
-  "defaultThinkingLevel": "medium",
-  "hideThinkingBlock": false,
+  "lastChangelogVersion": "0.80.6",
+  "theme": "gaia-skill-tree",
+  "packages": [
+    "npm:@yofriadi/pi-antigravity-oauth",
+    "npm:pi-antigravity-quota",
+    "npm:@amaster.ai/pi-image-gen",
+    "npm:pi-free",
+    "npm:pi-google-workspace"
+  ],
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.6-luna",
+  "defaultThinkingLevel": "low",
+  "pi-image-gen": {
+    "defaultModel": "gpt-image-2"
+  },
+  "enabledModels": [
+    "google-antigravity/gemini-3.1-pro",
+    "google-antigravity/gemini-3.5-flash",
+    "google-antigravity/claude-opus-4-6",
+    "google-antigravity/claude-sonnet-4-6",
+    "google-antigravity/gpt-oss-120b",
+    "openai-codex/gpt-5.5",
+    "cline/cohere/north-mini-code:free",
+    "cline/google/gemma-4-31b-it:free",
+    "cline/liquid/lfm-2.5-1.2b-instruct:free",
+    "cline/liquid/lfm-2.5-1.2b-thinking:free",
+    "cline/nvidia/nemotron-3-nano-30b-a3b:free",
+    "cline/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "cline/nvidia/nemotron-3-super-120b-a12b:free",
+    "cline/nvidia/nemotron-3-ultra-550b-a55b:free",
+    "cline/openai/gpt-oss-120b:free",
+    "cline/openai/gpt-oss-20b:free",
+    "cline/poolside/laguna-m.1:free",
+    "cline/poolside/laguna-xs-2.1:free",
+    "cline/stepfun/step-3.7-flash",
+    "openai-codex/gpt-5.6-luna",
+    "openai-codex/gpt-5.6-sol",
+    "openai-codex/gpt-5.6-terra",
+    "cline/tencent/hy3:free",
+    "cline/nousresearch/hermes-3-llama-3.1-405b:free",
+    "cline/x-ai/grok-4.5",
+    "kilo/tencent/hy3:free",
+    "kilo/stepfun/step-3.7-flash:free"
+  ],
+  "showHardwareCursor": true,
   "terminal": {
     "showTerminalProgress": true
-  },
-  "steeringMode": "one-at-a-time",
-  "packages": [
-    "git:github.com/crustyhacker/pi-zerg-swarm"
-  ]
+  }
 }
