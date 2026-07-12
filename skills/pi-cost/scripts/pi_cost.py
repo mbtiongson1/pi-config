@@ -12,18 +12,11 @@ MODEL_PRICING = {
     "google-antigravity/gemini-3.5-flash": (1.5, 9.0, 0.15),
     "google-antigravity/gpt-oss-120b": (0.25, 0.69, 0.025),
     
-    # general model default fallback rates
-    "opus": (5.0, 25.0, 0.5),
-    "sonnet": (3.0, 15.0, 0.3),
-    "haiku": (0.80, 4.0, 0.08),
-    "gemini-3.5-flash": (1.5, 9.0, 0.15),
-    "gemini-2.5-flash": (1.5, 9.0, 0.15),
-    "gemini-3.1-pro": (2.0, 12.0, 0.2),
-    "gpt-5.4-mini": (0.75, 4.5, 0.075),
-    "gpt-5.5": (5.0, 30.0, 0.5),
-    "gpt-5-mini": (0.25, 2.0, 0.025),
-    "gpt-oss-120b": (0.25, 0.69, 0.025)
 }
+
+# Pricing is intentionally limited to Antigravity models. Other providers may
+# expose an authoritative cost in the harness usage object; when they do not,
+# report cost as unavailable rather than applying a made-up fallback rate.
 
 def get_pricing(model_name, provider=None):
     if not model_name:
@@ -40,8 +33,7 @@ def get_pricing(model_name, provider=None):
     for key, pricing in MODEL_PRICING.items():
         if key in model_lower:
             return pricing
-    # Default fallback (similar to flash/gpt-5-mini pricing)
-    return (1.0, 5.0, 0.1)
+    return None
 
 def parse_usage(usage, model_name, provider=None):
     if not usage:
@@ -66,7 +58,13 @@ def parse_usage(usage, model_name, provider=None):
         }
     
     # Calculate using local pricing tables
-    p_in, p_out, p_cache = get_pricing(model_name, provider)
+    pricing = get_pricing(model_name, provider)
+    if pricing is None:
+        return {
+            "input": input_tokens, "output": output_tokens, "cacheRead": cache_read,
+            "cost_in": None, "cost_out": None, "cost_cache": None, "cost_total": None
+        }
+    p_in, p_out, p_cache = pricing
     cost_in = (input_tokens / 1000000.0) * p_in
     cost_out = (output_tokens / 1000000.0) * p_out
     cost_cache = (cache_read / 1000000.0) * p_cache
@@ -133,7 +131,8 @@ def main():
                         main_input += stats["input"]
                         main_output += stats["output"]
                         main_cache += stats["cacheRead"]
-                        main_cost += stats["cost_total"]
+                        if stats["cost_total"] is not None:
+                            main_cost += stats["cost_total"]
                         if not is_only_calls:
                             main_turns += 1
                             
@@ -168,24 +167,28 @@ def main():
     print(f"Effort(s):    {', '.join(main_efforts) if main_efforts else 'Unknown'}")
     print(f"Turns:        {main_turns}")
     print(f"Tokens:       ↑{main_input:,} input | ↓{main_output:,} output | R {main_cache:,} cache read")
-    print(f"Est. Cost:    ${main_cost:.4f}")
+    print(f"Est. Cost:    ${main_cost:.4f}" if main_cost is not None else "Est. Cost:    unavailable (no harness cost; model not priced locally)")
     
     if subagents:
         print("\n--- SUBAGENT RUNS BREAKDOWN ---")
         sub_cost_total = 0.0
+        sub_cost_unknown = False
         for s in subagents:
             stats = s["stats"]
-            sub_cost_total += stats["cost_total"]
+            if stats["cost_total"] is None:
+                sub_cost_unknown = True
+            else:
+                sub_cost_total += stats["cost_total"]
             print(f"Line {s['line']} | {s['agent']} ({s['model']}) [ID: {s['id']}]:")
             print(f"  Turns:      {s['turns']}")
             print(f"  Tokens:     ↑{stats['input']:,} input | ↓{stats['output']:,} output | R {stats['cacheRead']:,} cache read")
-            print(f"  Est. Cost:  ${stats['cost_total']:.4f}")
+            print(f"  Est. Cost:  ${stats['cost_total']:.4f}" if stats['cost_total'] is not None else "  Est. Cost:  unavailable (no harness cost; model not priced locally)")
             print("-" * 40)
         
         print("\n--- SESSION TOTAL SUMMARY ---")
         print(f"Main Session Cost:  ${main_cost:.4f}")
-        print(f"Subagent Cost:      ${sub_cost_total:.4f}")
-        print(f"Total Session Cost: ${main_cost + sub_cost_total:.4f}")
+        print(f"Subagent Cost:      ${sub_cost_total:.4f}" if not sub_cost_unknown else "Subagent Cost:      unavailable for one or more runs")
+        print(f"Total Session Cost: ${main_cost + sub_cost_total:.4f}" if not sub_cost_unknown else "Total Session Cost: unavailable (see per-run status)")
     else:
         print("\nNo subagent runs logged in this session yet.")
         print(f"Total Session Cost: ${main_cost:.4f}")
