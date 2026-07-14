@@ -6,7 +6,10 @@
     "npm:pi-antigravity-quota",
     "npm:@amaster.ai/pi-image-gen",
     "npm:pi-free",
-    "npm:pi-google-workspace"
+    "npm:pi-google-workspace",
+    "npm:@ygncode/pi-insights",
+    "npm:pi-image-preview",
+    "npm:@quintinshaw/pi-dynamic-workflows"
   ],
   "defaultProvider": "google-antigravity",
   "defaultModel": "gemini-3.1-pro",
