@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.80.6",
+  "lastChangelogVersion": "0.80.7",
   "theme": "gaia-skill-tree",
   "packages": [
     "npm:@yofriadi/pi-antigravity-oauth",
@@ -8,9 +8,10 @@
     "npm:pi-free",
     "npm:pi-google-workspace"
   ],
-  "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.6-luna",
+  "defaultProvider": "google-antigravity",
+  "defaultModel": "gemini-3.1-pro",
   "defaultThinkingLevel": "low",
+  "showCacheMissNotices": true,
   "pi-image-gen": {
     "defaultModel": "gpt-image-2"
   },

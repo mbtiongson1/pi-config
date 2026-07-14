@@ -1,6 +1,6 @@
 ---
 name: pi-config
-description: Manages the local ~/.pi/agent/ configuration using the remote git repository https://github.com/mbtiongson1/pi-config. Supports Update, Reinstall, and Sync workflows.
+description: Manages the local ~/.pi/agent/ configuration using the remote git repository https://github.com/mbtiongson1/pi-config. Supports Update, Reinstall, Sync, and Diff workflows.
 ---
 
 # Pi Config Skill
@@ -16,6 +16,7 @@ Ask the user to choose one of the following operations:
 - **Update**: Pull the latest configuration from the repo and layer it over the existing local configuration.
 - **Reinstall**: Clean wipe the local configuration directories, then copy fresh configurations from the repo.
 - **Sync**: Push the current local configuration state back to the repo.
+- **Diff**: Compare the current local configuration with the remote repo to show what will change before updating or syncing.
 
 ---
 
@@ -67,7 +68,17 @@ If the user selects **Sync**:
 
 ---
 
-### 5. Check Optional Packages Step
+### 5. Diff Workflow
+If the user selects **Diff**:
+1. **Clone the Repo**: Run `git clone https://github.com/mbtiongson1/pi-config /data/data/com.termux/files/home/pi-config-temp` to clone the configuration to a temporary directory.
+2. **Compare Settings**: Compare local `settings.json` with the remote `settings.json.template`.
+3. **Compare Directories**: Use a command like `diff -rq` (or `rsync -n`) between the standard directories (`agents/`, `bin/`, `extensions/`, `prompts/`, `skills/`, `themes/`) in `~/.pi/agent/` and `/data/data/com.termux/files/home/pi-config-temp/`. Ignore generated/untracked files like `node_modules`, `__pycache__`, etc.
+4. **Clean Up**: Remove the temporary directory `/data/data/com.termux/files/home/pi-config-temp`.
+5. **Report**: Display the differences to the user, then ask if they would like to proceed with Update, Reinstall, or Sync.
+
+---
+
+### 6. Check Optional Packages Step
 After completing an **Update** or **Reinstall**, do the following:
 1. **Locate `optional-packages.json`**: Read the file `/data/data/com.termux/files/home/pi-config-temp/optional-packages.json`.
 2. **Check Local Settings**: Read `~/.pi/agent/settings.json`.
