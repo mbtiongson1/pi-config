@@ -6,5 +6,9 @@
   {
     "package": "npm:pi-antigravity-quota",
     "description": "Pi extension to check Google Cloud Code (Antigravity) model quotas"
+  },
+  {
+    "package": "npm:pi-voice-stt",
+    "description": "Pi Voice STT Extension with Termux TTS. See docs/pi-voice-stt-setup.md for hardware button routing."
   }
 ]
