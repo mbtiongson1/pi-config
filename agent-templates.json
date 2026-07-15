@@ -1,0 +1,21 @@
+{
+  "_comment": "Role templates for pi subagents. Copy to ~/.pi/agent/agent-templates.json and fill in your model strings.",
+  "_docs": "https://github.com/mbtiongson1/pi-config#subagent-role-templates",
+
+  "planner": {
+    "model": "anthropic--claude-opus-4-5",
+    "thinkingLevel": "high"
+  },
+  "worker": {
+    "model": "anthropic--claude-sonnet-4-5",
+    "thinkingLevel": "medium"
+  },
+  "scout": {
+    "model": "anthropic--claude-haiku-4-5",
+    "thinkingLevel": "minimal"
+  },
+  "reviewer": {
+    "model": "anthropic--claude-sonnet-4-5",
+    "thinkingLevel": "low"
+  }
+}

@@ -81,12 +81,32 @@ export PI_CACHE_RETENTION=long
 
 | Path | Purpose |
 |------|---------|
-| `agents/` | Custom subagents (planner, reviewer, scout, worker) |
-| `extensions/` | Custom pi extensions |
+| `agents/` | Custom subagents — declare `role:` instead of model strings |
+| `extensions/` | Custom pi extensions (subagent extension with role-template support) |
 | `prompts/` | Prompt templates |
 | `bin/` | Utility scripts |
+| `agent-templates.json` | Role → model + thinking-level map. Copy to `~/.pi/agent/` |
 | `settings.json.template` | Base settings — fill in your provider + models |
 | `optional-packages.json` | List of optional packages/extensions to prompt for installation |
+
+## Subagent Role Templates
+
+Agents declare a  (planner, worker, scout, reviewer) instead of a hardcoded model.
+The role resolves model + thinking level from .
+
+Built-in thinking-level defaults (no config needed just for thinking):
+
+| Role     | Thinking level |
+|----------|----------------|
+| planner  |          |
+| worker   |        |
+| scout    |       |
+| reviewer |           |
+
+Copy  to  and fill in your model strings.
+Full guide: [docs/subagent-thinking-levels.md](docs/subagent-thinking-levels.md)
+
+---
 
 ## What's NOT Committed (stays local)
 

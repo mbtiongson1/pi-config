@@ -28,7 +28,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
+import { type AgentConfig, type AgentScope, discoverAgents, loadTemplates, resolveEffectiveConfig } from "./agents.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -291,8 +291,11 @@ async function runSingleAgent(
 		};
 	}
 
+	const templates = loadTemplates();
+	const resolved  = resolveEffectiveConfig(agent, templates);
 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
-	if (agent.model) args.push("--model", agent.model);
+	if (resolved.model)         args.push("--model", resolved.model);
+	if (resolved.thinkingLevel) args.push("--thinking-level", resolved.thinkingLevel);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
 	let tmpPromptDir: string | null = null;
@@ -306,7 +309,7 @@ async function runSingleAgent(
 		messages: [],
 		stderr: "",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-		model: agent.model,
+		model: resolved.model,
 		step,
 	};
 
@@ -697,8 +700,33 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 
-		renderCall(args, theme, _context) {
+		renderCall(args, theme, context) {
 			const scope: AgentScope = args.agentScope ?? "user";
+			const templates   = loadTemplates();
+			const agentMap    = new Map(
+				discoverAgents(context.cwd, scope).agents.map((a) => [a.name, a]),
+			);
+			const thinkingColorMap: Record<string, string> = {
+				off: "thinkingOff", minimal: "thinkingMinimal", low: "thinkingLow",
+				medium: "thinkingMedium", high: "thinkingHigh", xhigh: "thinkingXhigh", max: "thinkingMax",
+			};
+			const agentTags = (name: string): string => {
+				const conf = agentMap.get(name);
+				if (!conf) return "";
+				const resolved = resolveEffectiveConfig(conf, templates);
+				const roleOrModel = resolved.roleLabel
+					? theme.fg("muted", `[${resolved.roleLabel}]`)
+					: resolved.model
+						? theme.fg("dim", resolved.model.replace(/^[^-]+-+/, ""))
+						: "";
+				const thinkingColor = resolved.thinkingLevel
+					? (thinkingColorMap[resolved.thinkingLevel] ?? "thinkingMedium")
+					: null;
+				const thinkingTag = thinkingColor
+					? " " + theme.fg(thinkingColor as any, `[${resolved.thinkingLevel}]`)
+					: "";
+				return (roleOrModel ? " " + roleOrModel : "") + thinkingTag;
+			};
 			if (args.chain && args.chain.length > 0) {
 				let text =
 					theme.fg("toolTitle", theme.bold("subagent ")) +
@@ -714,6 +742,7 @@ export default function (pi: ExtensionAPI) {
 						theme.fg("muted", `${i + 1}.`) +
 						" " +
 						theme.fg("accent", step.agent) +
+						agentTags(step.agent) +
 						theme.fg("dim", ` ${preview}`);
 				}
 				if (args.chain.length > 3) text += `\n  ${theme.fg("muted", `... +${args.chain.length - 3} more`)}`;
@@ -726,7 +755,7 @@ export default function (pi: ExtensionAPI) {
 					theme.fg("muted", ` [${scope}]`);
 				for (const t of args.tasks.slice(0, 3)) {
 					const preview = t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
-					text += `\n  ${theme.fg("accent", t.agent)}${theme.fg("dim", ` ${preview}`)}`;
+					text += `\n  ${theme.fg("accent", t.agent)}${agentTags(t.agent)}${theme.fg("dim", ` ${preview}`)}`;
 				}
 				if (args.tasks.length > 3) text += `\n  ${theme.fg("muted", `... +${args.tasks.length - 3} more`)}`;
 				return new Text(text, 0, 0);
@@ -736,7 +765,8 @@ export default function (pi: ExtensionAPI) {
 			let text =
 				theme.fg("toolTitle", theme.bold("subagent ")) +
 				theme.fg("accent", agentName) +
-				theme.fg("muted", ` [${scope}]`);
+				theme.fg("muted", ` [${scope}]`) +
+				agentTags(agentName);
 			text += `\n  ${theme.fg("dim", preview)}`;
 			return new Text(text, 0, 0);
 		},
