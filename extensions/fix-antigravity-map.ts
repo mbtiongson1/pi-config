@@ -40,7 +40,7 @@ export default function fixAntigravityMap(pi: ExtensionAPI) {
 function patchModelsFile(content: string): { content: string; modified: boolean } {
 	let modified = false;
 
-	if (content.includes("// [antigravity-map-patch]")) {
+	if (content.includes("// [antigravity-map-patch] gemini-3.6-flash")) {
 		return { content, modified: false };
 	}
 
@@ -87,6 +87,14 @@ function patchModelsFile(content: string): { content: string; modified: boolean 
 			off: "low",
 			minimal: "low",
 			medium: null,
+			xhigh: null,
+		},`
+		},
+		{
+			// gemini-3.6-flash: low/medium/high all valid; extra-low does not exist.
+			id: "gemini-3.6-flash",
+			map: `// [antigravity-map-patch] gemini-3.6-flash
+		thinkingLevelMap: {
 			xhigh: null,
 		},`
 		}
@@ -147,7 +155,7 @@ function patchModelsFile(content: string): { content: string; modified: boolean 
 function patchCloudCodeAssistFile(content: string): { content: string; modified: boolean } {
 	let modified = false;
 
-	if (content.includes("// [antigravity-map-patch] isGemini3FlashModel")) {
+	if (content.includes("[156]")) {
 		return { content, modified: false };
 	}
 
@@ -163,11 +171,14 @@ function patchCloudCodeAssistFile(content: string): { content: string; modified:
 	}
 
 	const block = content.slice(funcIdx, endIdx + 1);
-	if (block.includes("/gemini-3(?:\\.1)?-flash/")) {
-		const updatedBlock = block.replace(
-			"/gemini-3(?:\\.1)?-flash/",
-			"/* [antigravity-map-patch] isGemini3FlashModel */ /gemini-3(?:\\.[15])?-flash/"
-		);
+	// Match any of: original unpatched, or previously patched with [15] (upgrade to [156])
+	const oldRegex1 = "/gemini-3(?:\\.1)?-flash/";
+	const oldRegex2 = "/gemini-3(?:\\.[15])?-flash/";
+	const newRegex = "/* [antigravity-map-patch] isGemini3FlashModel */ /gemini-3(?:\\.[156])?-flash/";
+	if (block.includes(oldRegex1) || (block.includes(oldRegex2) && !block.includes("[156]"))) {
+		const updatedBlock = block
+			.replace(oldRegex1, newRegex)
+			.replace(oldRegex2, newRegex);
 		const newContent = content.slice(0, funcIdx) + updatedBlock + content.slice(endIdx + 1);
 		return { content: newContent, modified: true };
 	}
