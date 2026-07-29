@@ -10,5 +10,9 @@
   {
     "package": "npm:pi-voice-stt",
     "description": "Pi Voice STT Extension with Termux TTS. See docs/pi-voice-stt-setup.md for hardware button routing."
+  },
+  {
+    "package": "npm:@quintinshaw/pi-dynamic-workflows",
+    "description": "Pi Dynamic Workflows extension"
   }
 ]
