@@ -1,4 +1,5 @@
 ---
+model: openai-codex/gpt-5.6-terra:xhigh
 name: planner-terra
 description: Planning specialist powered by GPT 5.6 Terra XHigh
 role: planner

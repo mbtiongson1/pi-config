@@ -1,4 +1,5 @@
 ---
+model: openai-codex/gpt-5.6-sol:medium
 name: worker-sol
 description: Worker agent powered by GPT 5.6 Sol Medium
 role: worker

@@ -1,4 +1,5 @@
 ---
+model: antigravity/gemini-3.1-pro:high
 name: worker-pro
 description: Heavy-duty subagent for complex creative and architectural tasks, isolated context
 role: worker

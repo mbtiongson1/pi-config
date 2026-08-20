@@ -1,7 +1,11 @@
 [
   {
+    "package": "npm:pi-antigravity",
+    "description": "Antigravity provider with native Gemini 3.7 Flash, Claude, and GPT-OSS support"
+  },
+  {
     "package": "npm:@yofriadi/pi-antigravity-oauth",
-    "description": "Antigravity OAuth extension for authentication"
+    "description": "Legacy Antigravity OAuth provider (retained for Gemini 3.5 Flash Lite support)"
   },
   {
     "package": "npm:pi-antigravity-quota",

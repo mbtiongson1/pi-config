@@ -1,4 +1,5 @@
 ---
+model: openai-codex/gpt-5.6-sol:xhigh
 name: planner-sol
 description: Planning specialist powered by GPT 5.6 Sol Max
 role: planner

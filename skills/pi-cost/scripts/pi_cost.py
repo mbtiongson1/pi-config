@@ -5,13 +5,21 @@ import sys
 
 # Pricing table in USD per Million tokens: (Input, Output, CacheRead)
 MODEL_PRICING = {
-    # google-antigravity specific pricing
+    # antigravity & google-antigravity specific pricing
+    "antigravity/claude-opus-4-6": (5.0, 25.0, 0.5),
+    "antigravity/claude-sonnet-4-6": (3.0, 15.0, 0.3),
+    "antigravity/gemini-3.1-pro": (2.0, 12.0, 0.2),
+    "antigravity/gemini-3.7-flash": (1.5, 7.5, 0.15),
+    "antigravity/gemini-3.6-flash": (1.5, 7.5, 0.15),
+    "antigravity/gemini-3.5-flash": (1.5, 9.0, 0.15),
+    "antigravity/gpt-oss-120b": (0.25, 0.69, 0.025),
     "google-antigravity/claude-opus-4-6": (5.0, 25.0, 0.5),
     "google-antigravity/claude-sonnet-4-6": (3.0, 15.0, 0.3),
     "google-antigravity/gemini-3.1-pro": (2.0, 12.0, 0.2),
+    "google-antigravity/gemini-3.7-flash": (1.5, 7.5, 0.15),
+    "google-antigravity/gemini-3.5-flash-lite": (0.3, 2.5, 0.03),
     "google-antigravity/gemini-3.5-flash": (1.5, 9.0, 0.15),
     "google-antigravity/gpt-oss-120b": (0.25, 0.69, 0.025),
-    
 }
 
 # Pricing is intentionally limited to Antigravity models. Other providers may

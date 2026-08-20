@@ -1,4 +1,5 @@
 ---
+model: openai-codex/gpt-5.6-luna:minimal
 name: scout-luna
 description: Fast codebase recon using GPT 5.6 Luna Minimal
 role: scout

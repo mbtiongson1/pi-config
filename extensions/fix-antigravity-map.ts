@@ -19,8 +19,45 @@ export default function fixAntigravityMap(pi: ExtensionAPI) {
 			// Patch models.ts
 			const modelsContent = fs.readFileSync(modelsPath, "utf-8");
 			const modelsResult = patchModelsFile(modelsContent);
-			if (modelsResult.modified) {
-				fs.writeFileSync(modelsPath, modelsResult.content, "utf-8");
+			let finalModelsContent = modelsResult.content;
+			let modelsModified = modelsResult.modified;
+
+			if (!finalModelsContent.includes('"gemini-3.5-flash-lite"')) {
+				finalModelsContent = finalModelsContent.replace(
+					'"gemini-3.5-flash": {',
+					`"gemini-3.5-flash-lite": {
+		off: "gemini-3.5-flash-extra-low",
+		routing: {
+			minimal: "gemini-3.5-flash-extra-low",
+			low: "gemini-3.5-flash-extra-low",
+			medium: "gemini-3.5-flash-low",
+			high: "gemini-3.5-flash-medium",
+		},
+		defaultRequestId: "gemini-3.5-flash-extra-low",
+	},
+	"gemini-3.5-flash": {`
+				);
+				finalModelsContent = finalModelsContent.replace(
+					'id: "gemini-3.5-flash",',
+					`id: "gemini-3.5-flash-lite",
+		name: "Gemini 3.5 Flash Lite (Antigravity)",
+		api: GOOGLE_GEMINI_CLI_API,
+		provider: "google-antigravity",
+		baseUrl: "https://daily-cloudcode-pa.sandbox.googleapis.com",
+		reasoning: false,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1048576,
+		maxTokens: 65535,
+	},
+	{
+		id: "gemini-3.5-flash",`
+				);
+				modelsModified = true;
+			}
+
+			if (modelsModified) {
+				fs.writeFileSync(modelsPath, finalModelsContent, "utf-8");
 				ctx.ui.notify("antigravity-map: patched models.ts", "info");
 			}
 
@@ -40,8 +77,15 @@ export default function fixAntigravityMap(pi: ExtensionAPI) {
 function patchModelsFile(content: string): { content: string; modified: boolean } {
 	let modified = false;
 
-	if (content.includes("// [antigravity-map-patch] gemini-3.6-flash")) {
-		return { content, modified: false };
+	// Migrate the previous default flash catalogue entry if the package was
+	// installed before Gemini 3.7 Flash was added.
+	if (content.includes("gemini-3.6-flash")) {
+		content = content.replaceAll("gemini-3.6-flash", "gemini-3.7-flash");
+		modified = true;
+	}
+
+	if (content.includes("// [antigravity-map-patch] gemini-3.7-flash")) {
+		return { content, modified };
 	}
 
 	const patches = [
@@ -91,9 +135,9 @@ function patchModelsFile(content: string): { content: string; modified: boolean 
 		},`
 		},
 		{
-			// gemini-3.6-flash: low/medium/high all valid; extra-low does not exist.
-			id: "gemini-3.6-flash",
-			map: `// [antigravity-map-patch] gemini-3.6-flash
+			// gemini-3.7-flash: low/medium/high all valid; extra-low does not exist.
+			id: "gemini-3.7-flash",
+			map: `// [antigravity-map-patch] gemini-3.7-flash
 		thinkingLevelMap: {
 			xhigh: null,
 		},`
@@ -155,7 +199,7 @@ function patchModelsFile(content: string): { content: string; modified: boolean 
 function patchCloudCodeAssistFile(content: string): { content: string; modified: boolean } {
 	let modified = false;
 
-	if (content.includes("[156]")) {
+	if (content.includes("[1567]")) {
 		return { content, modified: false };
 	}
 
@@ -171,14 +215,17 @@ function patchCloudCodeAssistFile(content: string): { content: string; modified:
 	}
 
 	const block = content.slice(funcIdx, endIdx + 1);
-	// Match any of: original unpatched, or previously patched with [15] (upgrade to [156])
+	// Match the original regex or previous [15]/[156] patches and upgrade them
+	// so Gemini 3.7 Flash is recognized by the request formatter.
 	const oldRegex1 = "/gemini-3(?:\\.1)?-flash/";
 	const oldRegex2 = "/gemini-3(?:\\.[15])?-flash/";
-	const newRegex = "/* [antigravity-map-patch] isGemini3FlashModel */ /gemini-3(?:\\.[156])?-flash/";
-	if (block.includes(oldRegex1) || (block.includes(oldRegex2) && !block.includes("[156]"))) {
+	const oldRegex3 = "/gemini-3(?:\\.[156])?-flash/";
+	const newRegex = "/* [antigravity-map-patch] isGemini3FlashModel */ /gemini-3(?:\\.[1567])-flash/";
+	if (block.includes(oldRegex1) || block.includes(oldRegex2) || (block.includes(oldRegex3) && !block.includes("[1567]"))) {
 		const updatedBlock = block
 			.replace(oldRegex1, newRegex)
-			.replace(oldRegex2, newRegex);
+			.replace(oldRegex2, newRegex)
+			.replace(oldRegex3, newRegex);
 		const newContent = content.slice(0, funcIdx) + updatedBlock + content.slice(endIdx + 1);
 		return { content: newContent, modified: true };
 	}

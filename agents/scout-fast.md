@@ -1,4 +1,5 @@
 ---
+model: antigravity/gpt-oss-120b:medium
 name: scout-fast
 description: Fast codebase recon using gpt-oss-120b
 role: scout

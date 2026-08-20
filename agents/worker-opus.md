@@ -1,4 +1,5 @@
 ---
+model: antigravity/claude-opus-4-6:high
 name: worker-opus
 description: Worker agent powered by Claude Opus
 role: worker
