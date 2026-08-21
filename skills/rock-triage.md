@@ -1,7 +1,7 @@
 ---
 name: rock-triage
-description: Triage, link, prioritize, and assign Rock RMS and Rock-related issues across repositories using subagent fan-out and structured impact/urgency rules.
-version: 1.0.0
+description: Triage, link, prioritize, and assign Rock RMS and Rock-related issues across repositories using subagent fan-out, live read-only verification via /rock-favor, and structured impact/urgency rules.
+version: 1.1.0
 ---
 
 # Rock Triage Skill
@@ -36,15 +36,33 @@ Prioritize issues using the `P0`–`P3` matrix:
 
 ---
 
-## 2. Four-Step Triage Inspection Workflow
+## 2. Live Read-Only Verification via `rock-favor`
+
+To avoid scout hallucinations and verify real-world data state without modifying production:
+- **Credential Storage**: Load credentials from `~/.config/rock-favor/.env`:
+  - Production: `ROCK_API_URL`, `ROCK_API_TOKEN`
+  - Preview: `ROCK_PREVIEW_API_URL`, `ROCK_PREVIEW_API_TOKEN`
+- **Request Headers**:
+  - `Authorization-Token: <ROCK_API_TOKEN>`
+  - `Accept: application/json`
+- **Verification Operations**:
+  - **Entity Inspections**: `GET /api/Groups/{id}`, `GET /api/Attributes/{id}`, `GET /api/StepPrograms/{id}`.
+  - **Schema & Parity Audits**: Compare `EntityTypeId`, `Key`, and `Name` between prod and preview endpoints.
+  - **Role & Security Checks**: Inspect `GroupTypeRoles` and `IsSecurityRole` flags directly on live objects.
+  - **Read-Only Invariant**: Never execute mutating operations (`POST`, `PUT`, `DELETE`, `PATCH`) during triage verification.
+
+---
+
+## 3. Four-Step Triage Inspection Workflow
 
 For every issue in scope, perform the following 4-step inspection:
 
 1. **State & Relevance Assessment**:
    - Is the issue still ongoing, or has it already been resolved / superseded?
-   - If resolved or obsolete, verify against codebase/PRs and recommend or execute closing with rationale.
+   - Verify live against Rock REST endpoints (via `rock-favor` read-only) or repository PRs/commits.
+   - If resolved or obsolete, verify against codebase/live API and recommend or execute closing with rationale.
 2. **Status Update & Roadmap Timeline**:
-   - Provide a concise technical comment/update on current state.
+   - Provide a concise technical comment/update on current state and live observations.
    - State whether work is scheduled to start soon, is blocked on prerequisites, or is in backlog.
 3. **Linkage & Umbrella Synthesis**:
    - Identify shared domains and underlying dependencies across issues.
@@ -55,16 +73,16 @@ For every issue in scope, perform the following 4-step inspection:
 
 ---
 
-## 3. Subagent Fan-Out Orchestration
+## 4. Subagent Fan-Out Orchestration
 
 To maintain low latency and token efficiency:
 - **Scout Fan-Out**: Delegate parallel reads and issue payload inspection to cost-efficient subagents (e.g. `scout`, `scout-lite`, or `scout-fast`).
+- **Live Verification**: Use read-only REST checks against `rock-favor` prod/preview to validate entity IDs, group flags, and attribute mappings.
 - **Orchestrator Focus**: The main triage orchestrator aggregates findings, identifies semantic clusters, constructs umbrella links, and maintains prioritization.
-- **Hallucination Verification**: Run a quick verification pass confirming referenced issue numbers, commit IDs, and existing label names before executing `gh issue edit` / `gh issue comment` commands.
 
 ---
 
-## 4. Final Output Format
+## 5. Final Output Format
 
 End every triage run with a consolidated **Prioritized Rock Issue Matrix**:
 
@@ -74,11 +92,13 @@ End every triage run with a consolidated **Prioritized Rock Issue Matrix**:
 ## 🚨 P0 — Urgent & Critical
 - **#<number>** — <Title> | `<Size>` | Assigned: `@<assignee>` | Status: <Active/Blocked/Ongoing>
   - *Context / Umbrella*: <Link or umbrella reference>
+  - *Live Verification*: <Observed live state via rock-favor>
   - *Next Action*: <Immediate step>
 
 ## ⚠️ P1 — Important Updates
 - **#<number>** — <Title> | `<Size>` | Assigned: `@<assignee>` | Status: <Status>
   - *Context / Umbrella*: <Link or umbrella reference>
+  - *Live Verification*: <Observed live state via rock-favor>
 
 ## 💡 P2 — Feature Upgrades & Enhancements
 - **#<number>** — <Title> | `<Size>` | Assigned: `@<assignee>` | Status: <Status>
