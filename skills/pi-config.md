@@ -91,3 +91,4 @@ After completing an **Update** or **Reinstall**, do the following:
      - `[package-name]` - `[description]`
      Would you like to install them?"
 5. **Install Packages**: If the user approves, run `pi install <package>` for each approved package to install it and update `settings.json`.
+6. **Apply Package Customizations**: If an approved package has `postInstallInstructions`, apply them immediately after installation and report the changes. For `npm:@quintinshaw/pi-dynamic-workflows`, ensure omitted workflow delivery defaults to foreground (`background: false`) while explicit `background: true` remains available, then reload Pi.

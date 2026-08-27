@@ -17,6 +17,11 @@
   },
   {
     "package": "npm:@quintinshaw/pi-dynamic-workflows",
-    "description": "Pi Dynamic Workflows extension"
+    "description": "Pi Dynamic Workflows extension",
+    "postInstallInstructions": [
+      "Set defaultBackground to false in ~/.pi/workflows/settings.json so omitted workflow calls run inline.",
+      "Customize the installed package so its workflow tool resolves omitted background as params.background ?? loadWorkflowSettings({ cwd }).defaultBackground ?? false; preserve explicit background: true as the opt-in for detached delivery.",
+      "Run /reload after applying the customization."
+    ]
   }
 ]

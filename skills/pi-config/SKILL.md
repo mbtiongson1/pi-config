@@ -101,3 +101,4 @@ After completing an **Update** or **Reinstall**:
 2. Read the packages listed in `~/.pi/agent/settings.json`.
 3. If any packages listed in `optional-packages.json` are not currently installed in `~/.pi/agent/settings.json`, ask the user if they would like to install them.
 4. If they agree to install a package, append it to the `"packages"` array in `~/.pi/agent/settings.json`.
+5. If the optional package entry contains `postInstallInstructions`, apply those instructions immediately after installation and report what was changed. For `npm:@quintinshaw/pi-dynamic-workflows`, preserve the local customization that makes foreground execution (`background: false`) the default while keeping explicit `background: true` available.

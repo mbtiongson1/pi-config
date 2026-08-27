@@ -295,7 +295,7 @@ async function runSingleAgent(
 	const resolved  = resolveEffectiveConfig(agent, templates);
 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
 	if (resolved.model)         args.push("--model", resolved.model);
-	if (resolved.thinkingLevel) args.push("--thinking-level", resolved.thinkingLevel);
+	if (resolved.thinkingLevel) args.push("--thinking", resolved.thinkingLevel);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
 	let tmpPromptDir: string | null = null;

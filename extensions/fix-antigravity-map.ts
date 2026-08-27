@@ -44,11 +44,19 @@ export default function fixAntigravityMap(pi: ExtensionAPI) {
 		api: GOOGLE_GEMINI_CLI_API,
 		provider: "google-antigravity",
 		baseUrl: "https://daily-cloudcode-pa.sandbox.googleapis.com",
-		reasoning: false,
+		reasoning: true,
 		input: ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 1048576,
 		maxTokens: 65535,
+		thinkingLevelMap: {
+			off: "minimal",
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+			xhigh: null,
+		},
 	},
 	{
 		id: "gemini-3.5-flash",`

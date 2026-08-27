@@ -1,7 +1,0 @@
-{
-  "name": "omniflash-ext",
-  "version": "1.0.0",
-  "dependencies": {
-    "omniflash-sdk": "latest"
-  }
-}
