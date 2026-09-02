@@ -54,9 +54,10 @@ Steps to execute:
    cp -R /Users/marcotiongson/Documents/pi-config/prompts/ ~/.pi/agent/prompts/
    cp -R /Users/marcotiongson/Documents/pi-config/bin/ ~/.pi/agent/bin/
    ```
-4. Reset `settings.json` from the template:
+4. Reset `settings.json` and `models.json` from templates:
    ```bash
    cp /Users/marcotiongson/Documents/pi-config/settings.json.template ~/.pi/agent/settings.json
+   cp /Users/marcotiongson/Documents/pi-config/models.json.template ~/.pi/agent/models.json
    ```
 5. Run the **Post-Action Check** to prompt for missing optional packages.
 

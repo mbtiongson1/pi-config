@@ -207,7 +207,7 @@ function patchModelsFile(content: string): { content: string; modified: boolean 
 function patchCloudCodeAssistFile(content: string): { content: string; modified: boolean } {
 	let modified = false;
 
-	if (content.includes("[1567]")) {
+	if (content.includes("[15678]")) {
 		return { content, modified: false };
 	}
 
@@ -223,17 +223,19 @@ function patchCloudCodeAssistFile(content: string): { content: string; modified:
 	}
 
 	const block = content.slice(funcIdx, endIdx + 1);
-	// Match the original regex or previous [15]/[156] patches and upgrade them
-	// so Gemini 3.7 Flash is recognized by the request formatter.
+	// Match the original regex or previous [15]/[156]/[1567] patches and upgrade them
+	// so Gemini 3.8 Flash is recognized by the request formatter.
 	const oldRegex1 = "/gemini-3(?:\\.1)?-flash/";
 	const oldRegex2 = "/gemini-3(?:\\.[15])?-flash/";
 	const oldRegex3 = "/gemini-3(?:\\.[156])?-flash/";
-	const newRegex = "/* [antigravity-map-patch] isGemini3FlashModel */ /gemini-3(?:\\.[1567])-flash/";
-	if (block.includes(oldRegex1) || block.includes(oldRegex2) || (block.includes(oldRegex3) && !block.includes("[1567]"))) {
+	const oldRegex4 = "/gemini-3(?:\\.[1567])-flash/";
+	const newRegex = "/* [antigravity-map-patch] isGemini3FlashModel */ /gemini-3(?:\\.[15678])-flash/";
+	if (block.includes(oldRegex1) || block.includes(oldRegex2) || block.includes(oldRegex3) || block.includes(oldRegex4) || (block.includes("isGemini3FlashModel") && !block.includes("[15678]"))) {
 		const updatedBlock = block
 			.replace(oldRegex1, newRegex)
 			.replace(oldRegex2, newRegex)
-			.replace(oldRegex3, newRegex);
+			.replace(oldRegex3, newRegex)
+			.replace(oldRegex4, newRegex);
 		const newContent = content.slice(0, funcIdx) + updatedBlock + content.slice(endIdx + 1);
 		return { content: newContent, modified: true };
 	}

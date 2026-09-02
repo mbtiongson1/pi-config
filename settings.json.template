@@ -13,13 +13,19 @@
     "npm:@quintinshaw/pi-dynamic-workflows"
   ],
   "defaultProvider": "antigravity",
-  "defaultModel": "gemini-3.7-flash",
+  "defaultModel": "gemini-3.8-flash",
   "defaultThinkingLevel": "low",
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 16384,
+    "keepRecentTokens": 20000
+  },
   "showCacheMissNotices": true,
   "pi-image-gen": {
     "defaultModel": "gpt-image-2"
   },
   "enabledModels": [
+    "antigravity/gemini-3.8-flash",
     "antigravity/gemini-3.7-flash",
     "antigravity/claude-sonnet-4-6",
     "antigravity/claude-opus-4-6",
