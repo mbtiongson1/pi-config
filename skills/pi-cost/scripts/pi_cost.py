@@ -1,209 +1,334 @@
+#!/usr/bin/env python3
+"""Pi session costs: logged main-orchestrator dollars, catalog-priced workers.
+
+Worker inference is priced from Gaia skill-cost's LiteLLM catalog, including
+separate cache-read and cache-creation tokens. No worker inherits the harness's
+possibly incorrect cost field. The main orchestrator is deliberately unchanged:
+its harness-recorded cost is reported, never repriced by this script.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
 import json
 import os
-import glob
 import sys
+import tempfile
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
 
-# Pricing table in USD per Million tokens: (Input, Output, CacheRead)
-MODEL_PRICING = {
-    # antigravity & google-antigravity specific pricing
-    "antigravity/claude-opus-4-6": (5.0, 25.0, 0.5),
-    "antigravity/claude-sonnet-4-6": (3.0, 15.0, 0.3),
-    "antigravity/gemini-3.1-pro": (2.0, 12.0, 0.2),
-    "antigravity/gemini-3.8-flash": (1.5, 7.5, 0.15),
-    "antigravity/gemini-3.7-flash": (1.5, 7.5, 0.15),
-    "antigravity/gemini-3.6-flash": (1.5, 7.5, 0.15),
-    "antigravity/gemini-3.5-flash": (1.5, 9.0, 0.15),
-    "antigravity/gpt-oss-120b": (0.25, 0.69, 0.025),
-    "google-antigravity/claude-opus-4-6": (5.0, 25.0, 0.5),
-    "google-antigravity/claude-sonnet-4-6": (3.0, 15.0, 0.3),
-    "google-antigravity/gemini-3.1-pro": (2.0, 12.0, 0.2),
-    "google-antigravity/gemini-3.8-flash": (1.5, 7.5, 0.15),
-    "google-antigravity/gemini-3.7-flash": (1.5, 7.5, 0.15),
-    "google-antigravity/gemini-3.5-flash-lite": (0.3, 2.5, 0.03),
-    "google-antigravity/gemini-3.5-flash": (1.5, 9.0, 0.15),
-    "google-antigravity/gpt-oss-120b": (0.25, 0.69, 0.025),
-}
+PRICES_JSON = Path(__file__).with_name("prices.json")
+LITELLM_URL = (
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/"
+    "model_prices_and_context_window.json"
+)
+MAX_CATALOG_BYTES = 25_000_000
+EFFORT_SUFFIXES = (":low", ":medium", ":high", ":xhigh", ":minimal")
+WORKER_PROVIDERS = ("antigravity/", "google-antigravity/", "openai-codex/", "openai/", "anthropic/", "google/")
 
-# Pricing is intentionally limited to Antigravity models. Other providers may
-# expose an authoritative cost in the harness usage object; when they do not,
-# report cost as unavailable rather than applying a made-up fallback rate.
 
-def get_pricing(model_name, provider=None):
-    if not model_name:
-        return (0.0, 0.0, 0.0)
-    
-    # Match with provider prefix if available
-    if provider:
-        full_key = f"{provider.lower()}/{model_name.lower()}"
-        for key, pricing in MODEL_PRICING.items():
-            if key.lower() == full_key or key.lower() in full_key:
-                return pricing
+def _timestamp(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except (ValueError, TypeError, AttributeError):
+        return None
 
-    model_lower = model_name.lower()
-    for key, pricing in MODEL_PRICING.items():
-        if key in model_lower:
-            return pricing
+
+def _age_days(catalog: dict, now: datetime) -> float:
+    # The embedded fetch date, not mtime: copying an old sheet must not reset TTL.
+    fetched = _timestamp(catalog.get("_meta", {}).get("fetched_at"))
+    if fetched is None or fetched > now:
+        return float("inf")
+    return (now - fetched).total_seconds() / 86400
+
+
+def _read_catalog(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("_meta"), dict):
+            raise ValueError("missing catalog metadata")
+        return data
+    except (OSError, ValueError, TypeError) as exc:
+        print(f"warning: cannot read prices at {path}: {exc}", file=sys.stderr)
+        return None
+
+
+def refresh_prices(path: Path = PRICES_JSON, *, now: datetime | None = None) -> dict:
+    """Fetch LiteLLM's public rate sheet, prune and atomically replace the cache."""
+    now = now or datetime.now(timezone.utc)
+    req = urllib.request.Request(LITELLM_URL, headers={"User-Agent": "pi-cost/skill-cost"})
+    with urllib.request.urlopen(req, timeout=30) as response:
+        raw = response.read(MAX_CATALOG_BYTES + 1)
+    if len(raw) > MAX_CATALOG_BYTES:
+        raise ValueError("price catalog exceeded size limit")
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("price catalog must be an object")
+    pruned = {}
+    for name, item in data.items():
+        if not isinstance(item, dict) or not isinstance(name, str):
+            continue
+        inp, out = item.get("input_cost_per_token"), item.get("output_cost_per_token")
+        if inp is None and out is None:
+            continue
+        pruned[name] = {
+            "input": inp, "output": out,
+            "cache_read": item.get("cache_read_input_token_cost"),
+            "cache_write": item.get("cache_creation_input_token_cost"),
+            "provider": item.get("litellm_provider"),
+        }
+    # Reject a partial/error response rather than replacing a usable snapshot.
+    if len(pruned) < 100 or "gpt-6-luna" not in pruned or "gemini/gemini-3.8-flash" not in pruned:
+        raise ValueError("price catalog incomplete; keeping cached sheet")
+    pruned["_meta"] = {
+        "source": "BerriAI/litellm model_prices_and_context_window.json",
+        "source_url": LITELLM_URL,
+        "source_license": "MIT",
+        "source_repo": "https://github.com/BerriAI/litellm",
+        "fetched_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "model_count": len(pruned),
+        "note": "Pruned using gaia-research/skill-cost's catalog schema for pi-cost.",
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=".prices-", suffix=".json", delete=False) as out:
+            temp_path = Path(out.name)
+            json.dump(pruned, out, indent=2, sort_keys=True)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+    return pruned
+
+
+def load_prices(path: Path = PRICES_JSON, *, offline: bool = False, force: bool = False,
+                now: datetime | None = None, max_age_days: int | None = None) -> tuple[dict, bool]:
+    """On every invocation, refresh if the *catalog fetch date* is 7+ days old.
+
+    On network failure use the dated cached catalog with an explicit warning.
+    A missing/unparseable catalog without a successful refresh fails closed.
+    """
+    now = now or datetime.now(timezone.utc)
+    if max_age_days is None:
+        try:
+            max_age_days = max(0, int(os.environ.get("PI_COST_MAX_AGE_DAYS", "7")))
+        except ValueError:
+            max_age_days = 7
+    current = _read_catalog(path)
+    stale = current is None or _age_days(current, now) >= max_age_days
+    no_auto = os.environ.get("PI_COST_NO_AUTO_REFRESH", "").lower() in ("1", "true", "yes")
+    if force and offline:
+        raise ValueError("--refresh-prices cannot be combined with --offline")
+    if (force or stale and not (offline or no_auto)):
+        try:
+            current = refresh_prices(path, now=now)
+            stale = False
+        except Exception as exc:
+            if force:
+                raise ValueError(f"forced price refresh failed: {exc}") from exc
+            print(f"warning: price refresh failed ({exc}); using dated cached catalog if available", file=sys.stderr)
+    if current is None:
+        raise ValueError("no usable price catalog; refresh required")
+    if stale:
+        print(f"warning: price catalog is stale (fetched {current['_meta'].get('fetched_at', 'unknown')}); estimates are dated", file=sys.stderr)
+    return current, stale
+
+
+def _tokens(usage: dict, field: str) -> int | None:
+    value = usage.get(field, 0)
+    if isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+        return number if number >= 0 and number == float(value) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _model_key(model: str, catalog: dict) -> str | None:
+    """Only exact catalog keys after known Pi provider/effort normalization."""
+    model = (model or "").lower()
+    if model in catalog and model != "_meta":
+        return model
+    for prefix in WORKER_PROVIDERS:
+        if model.startswith(prefix):
+            model = model[len(prefix):]
+            break
+    else:
+        if "/" in model:
+            return None  # never guess a foreign provider's pricing
+    for suffix in EFFORT_SUFFIXES:
+        if model.endswith(suffix):
+            model = model[:-len(suffix)]
+            break
+    candidates = [model]
+    if model.startswith("gemini-"):
+        candidates.insert(0, "gemini/" + model)
+    for key in candidates:
+        if key in catalog and key != "_meta":
+            return key
     return None
 
-def parse_usage(usage, model_name, provider=None):
-    if not usage:
-        return {
-            "input": 0, "output": 0, "cacheRead": 0,
-            "cost_in": 0.0, "cost_out": 0.0, "cost_cache": 0.0, "cost_total": 0.0
-        }
-    
-    input_tokens = usage.get("input", 0) or 0
-    output_tokens = usage.get("output", 0) or 0
-    cache_read = usage.get("cacheRead", 0) or 0
-    
-    # Check if the harness already calculated a non-zero cost
-    logged_cost = usage.get("cost", {})
-    if isinstance(logged_cost, dict) and logged_cost.get("total", 0.0) > 0.0:
-        return {
-            "input": input_tokens, "output": output_tokens, "cacheRead": cache_read,
-            "cost_in": logged_cost.get("input", 0.0),
-            "cost_out": logged_cost.get("output", 0.0),
-            "cost_cache": logged_cost.get("cacheRead", 0.0),
-            "cost_total": logged_cost.get("total", 0.0)
-        }
-    
-    # Calculate using local pricing tables
-    pricing = get_pricing(model_name, provider)
-    if pricing is None:
-        return {
-            "input": input_tokens, "output": output_tokens, "cacheRead": cache_read,
-            "cost_in": None, "cost_out": None, "cost_cache": None, "cost_total": None
-        }
-    p_in, p_out, p_cache = pricing
-    cost_in = (input_tokens / 1000000.0) * p_in
-    cost_out = (output_tokens / 1000000.0) * p_out
-    cost_cache = (cache_read / 1000000.0) * p_cache
-    cost_total = cost_in + cost_out + cost_cache
-    
-    return {
-        "input": input_tokens, "output": output_tokens, "cacheRead": cache_read,
-        "cost_in": cost_in, "cost_out": cost_out, "cost_cache": cost_cache, "cost_total": cost_total
-    }
 
-def main():
-    # Find active session file
-    session_dirs = glob.glob(os.path.expanduser('~/.pi/agent/sessions/*/*.jsonl'))
-    if not session_dirs:
-        print("No active Pi session log files found.")
-        sys.exit(0)
-        
-    latest_session = max(session_dirs, key=os.path.getmtime)
-    print("=" * 60)
-    print(f"ACTIVE PI SESSION: {os.path.basename(latest_session)}")
-    print(f"Path: {latest_session}")
-    print("=" * 60)
-    
-    main_turns = 0
-    main_input = 0
-    main_output = 0
-    main_cache = 0
-    main_cost = 0.0
-    main_models = set()
-    main_efforts = set()
-    
-    subagents = []
-    
-    with open(latest_session, 'r') as f:
-        for line_num, line in enumerate(f, 1):
+def price_worker(usage: dict, model: str, catalog: dict) -> dict:
+    """Price positive usage at explicit LiteLLM rates. Missing cache rate = unknown."""
+    key = _model_key(model, catalog)
+    fields = (("input", "input"), ("output", "output"),
+              ("cacheRead", "cache_read"), ("cacheWrite", "cache_write"))
+    tokens = {name: _tokens(usage, name) for name, _ in fields}
+    result = {"model_key": key, "tokens": tokens, "parts": {}, "total": None, "unpriced": []}
+    if key is None:
+        result["unpriced"] = ["model"]
+        return result
+    rates = catalog[key]
+    for name, rate_name in fields:
+        count = tokens[name]
+        rate = rates.get(rate_name)
+        if count is None or count > 0 and (not isinstance(rate, (int, float)) or isinstance(rate, bool) or rate < 0):
+            result["unpriced"].append(name)
+        else:
+            result["parts"][name] = count * (rate if count else 0)
+    if not result["unpriced"]:
+        result["total"] = sum(result["parts"].values())
+    return result
+
+
+def _main_logged_cost(usage: dict) -> float | None:
+    cost = usage.get("cost")
+    if isinstance(cost, dict):
+        value = cost.get("total")
+        if isinstance(value, (int, float)) and value > 0:
+            return float(value)
+    # Some compaction/tool events are zero-token, zero-cost usage records.
+    if all(_tokens(usage, field) == 0 for field in ("input", "output", "cacheRead", "cacheWrite")):
+        return 0.0
+    # The main orchestrator is not repriced; uncosted nonzero usage is unknown.
+    return None
+
+
+def _runs(results: list, catalog: dict, *, origin: str, seen_nested: set) -> tuple[list, list]:
+    direct, nested = [], []
+    for result in results:
+        usage = result.get("usage") or {}
+        failed = result.get("exitCode") != 0
+        zero_usage_failure = failed and all(
+            _tokens(usage, field) == 0 for field in ("input", "output", "cacheRead", "cacheWrite")
+        )
+        priced = ({"model_key": None, "tokens": {}, "parts": {}, "total": 0.0, "unpriced": []}
+                  if zero_usage_failure else price_worker(usage, result.get("model") or "", catalog))
+        entry = {"origin": origin, "agent": result.get("agent"), "model": result.get("model"),
+                 "task": result.get("task", ""), "turns": usage.get("turns", 0),
+                 "failed": failed, "logged_cost": usage.get("cost"), **priced}
+        direct.append(entry)
+        for msg in result.get("messages") or []:
+            if not isinstance(msg, dict) or msg.get("role") != "toolResult" or msg.get("toolName") != "subagent":
+                continue
+            call_id = msg.get("toolCallId")
+            if call_id and call_id in seen_nested:
+                continue
+            if call_id:
+                seen_nested.add(call_id)
+            children = (msg.get("details") or {}).get("results") or []
+            children_direct, descendants = _runs(children, catalog, origin="nested", seen_nested=seen_nested)
+            nested.extend(children_direct)
+            nested.extend(descendants)
+    return direct, nested
+
+
+def report_session(path: Path, catalog: dict) -> dict:
+    main = {"turns": 0, "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0,
+            "logged_cost": 0.0, "cost_missing": False, "models": set()}
+    direct, nested = [], []
+    seen_nested = set()
+    with path.open(encoding="utf-8") as source:
+        for line_num, line in enumerate(source, 1):
             try:
                 data = json.loads(line)
-                
-                # Check for thinking level change
-                if data.get('type') == 'thinking_level_change':
-                    level = data.get('thinkingLevel')
-                    if level:
-                        main_efforts.add(level)
-                
-                msg = data.get('message', {})
-                role = msg.get('role')
-                
-                # Check for main assistant message
-                if role == 'assistant':
-                    content = msg.get('content', [])
-                    # Ignore if the assistant message is only tool calls
-                    is_only_calls = all(c.get('type') == 'toolCall' for c in content) if content else False
-                    
-                    usage_data = msg.get('usage')
-                    model_name = msg.get('model') or data.get('model')
-                    provider = msg.get('provider') or data.get('provider')
-                    
-                    if model_name:
-                        full_model = f"{provider}/{model_name}" if provider else model_name
-                        main_models.add(full_model)
-                    
-                    if usage_data:
-                        stats = parse_usage(usage_data, model_name, provider)
-                        main_input += stats["input"]
-                        main_output += stats["output"]
-                        main_cache += stats["cacheRead"]
-                        if stats["cost_total"] is not None:
-                            main_cost += stats["cost_total"]
-                        if not is_only_calls:
-                            main_turns += 1
-                            
-                # Check for subagent tool execution results
-                elif role == 'toolResult' and msg.get('toolName') == 'subagent':
-                    tool_call_id = msg.get('toolCallId')
-                    details = msg.get('details', {})
-                    agent_name = details.get('agent') or "subagent"
-                    results = details.get('results', [])
-                    
-                    if results:
-                        last_result = results[-1]
-                        usage_data = last_result.get('usage', {})
-                        model_name = last_result.get('model')
-                        provider = last_result.get('provider') or details.get('provider')
-                        turns = usage_data.get('turns', 1)
-                        stats = parse_usage(usage_data, model_name, provider)
-                        
-                        subagents.append({
-                            "line": line_num,
-                            "id": tool_call_id,
-                            "agent": agent_name,
-                            "model": model_name,
-                            "turns": turns,
-                            "stats": stats
-                        })
-            except Exception as e:
-                pass
-                
-    print("\n--- MAIN SESSION STATS ---")
-    print(f"Model(s):     {', '.join(main_models) if main_models else 'Unknown'}")
-    print(f"Effort(s):    {', '.join(main_efforts) if main_efforts else 'Unknown'}")
-    print(f"Turns:        {main_turns}")
-    print(f"Tokens:       ↑{main_input:,} input | ↓{main_output:,} output | R {main_cache:,} cache read")
-    print(f"Est. Cost:    ${main_cost:.4f}" if main_cost is not None else "Est. Cost:    unavailable (no harness cost; model not priced locally)")
-    
-    if subagents:
-        print("\n--- SUBAGENT RUNS BREAKDOWN ---")
-        sub_cost_total = 0.0
-        sub_cost_unknown = False
-        for s in subagents:
-            stats = s["stats"]
-            if stats["cost_total"] is None:
-                sub_cost_unknown = True
-            else:
-                sub_cost_total += stats["cost_total"]
-            print(f"Line {s['line']} | {s['agent']} ({s['model']}) [ID: {s['id']}]:")
-            print(f"  Turns:      {s['turns']}")
-            print(f"  Tokens:     ↑{stats['input']:,} input | ↓{stats['output']:,} output | R {stats['cacheRead']:,} cache read")
-            print(f"  Est. Cost:  ${stats['cost_total']:.4f}" if stats['cost_total'] is not None else "  Est. Cost:  unavailable (no harness cost; model not priced locally)")
-            print("-" * 40)
-        
-        print("\n--- SESSION TOTAL SUMMARY ---")
-        print(f"Main Session Cost:  ${main_cost:.4f}")
-        print(f"Subagent Cost:      ${sub_cost_total:.4f}" if not sub_cost_unknown else "Subagent Cost:      unavailable for one or more runs")
-        print(f"Total Session Cost: ${main_cost + sub_cost_total:.4f}" if not sub_cost_unknown else "Total Session Cost: unavailable (see per-run status)")
-    else:
-        print("\nNo subagent runs logged in this session yet.")
-        print(f"Total Session Cost: ${main_cost:.4f}")
-        
-    print("=" * 60)
+            except ValueError:
+                continue
+            msg = data.get("message") or {}
+            if msg.get("role") == "assistant" and msg.get("usage"):
+                usage = msg["usage"]
+                main["models"].add(f"{msg.get('provider') or data.get('provider') or ''}/{msg.get('model') or data.get('model') or ''}".lstrip("/"))
+                content = msg.get("content") or []
+                if not content or any(part.get("type") != "toolCall" for part in content if isinstance(part, dict)):
+                    main["turns"] += 1
+                for field in ("input", "output", "cacheRead", "cacheWrite"):
+                    main[field] += _tokens(usage, field) or 0
+                cost = _main_logged_cost(usage)
+                if cost is None:
+                    main["cost_missing"] = True
+                else:
+                    main["logged_cost"] += cost
+            elif msg.get("role") == "toolResult" and msg.get("toolName") == "subagent":
+                rs, ns = _runs((msg.get("details") or {}).get("results") or [], catalog,
+                               origin=f"line {line_num}", seen_nested=seen_nested)
+                direct.extend(rs)
+                nested.extend(ns)
+    main["models"] = sorted(main["models"])
+    worker_runs = direct + nested
+    unknown = any(run["total"] is None for run in worker_runs)
+    workers = sum(run["total"] or 0 for run in worker_runs)
+    return {"session": str(path), "main": main, "direct": direct, "nested": nested,
+            "worker_priced_usd": None if unknown else workers,
+            "total_usd": None if unknown or main["cost_missing"] else main["logged_cost"] + workers}
 
-if __name__ == '__main__':
-    main()
+
+def _money(value: float | None) -> str:
+    return "unavailable" if value is None else f"${value:.4f}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--session", help="path to a Pi JSONL session (default: PI_SESSION_FILE or newest)")
+    parser.add_argument("--offline", action="store_true", help="skip network; mark stale catalog explicitly")
+    parser.add_argument("--refresh-prices", action="store_true", help="force an atomic LiteLLM price refresh")
+    parser.add_argument("--json", action="store_true", help="print machine-readable report")
+    args = parser.parse_args(argv)
+    try:
+        catalog, stale = load_prices(offline=args.offline, force=args.refresh_prices)
+    except ValueError as exc:
+        parser.error(str(exc))
+    session_file = args.session or os.environ.get("PI_SESSION_FILE")
+    if not session_file:
+        sessions = glob.glob(os.path.expanduser("~/.pi/agent/sessions/*/*.jsonl"))
+        session_file = max(sessions, key=os.path.getmtime) if sessions else None
+    if not session_file or not Path(session_file).is_file():
+        parser.error("no Pi session file found")
+    report = report_session(Path(session_file), catalog)
+    report["catalog"] = {"source": catalog["_meta"].get("source_url"),
+                         "fetched_at": catalog["_meta"].get("fetched_at"), "stale": stale}
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+    m = report["main"]
+    print(f"PI SESSION: {Path(session_file).name}")
+    print(f"Catalog: {report['catalog']['fetched_at']} ({'STALE' if stale else 'current'}) · {report['catalog']['source']}")
+    print(f"Main orchestrator (unchanged harness cost): {_money(None if m['cost_missing'] else m['logged_cost'])}; "
+          f"{m['turns']} turns · input {m['input']:,}, output {m['output']:,}, "
+          f"cache read {m['cacheRead']:,}, cache write {m['cacheWrite']:,}")
+    for label, runs in (("Direct workers", report["direct"]), ("Nested workers", report["nested"])):
+        print(f"{label}: {len(runs)} results ({sum(not r['failed'] for r in runs)} completed, "
+              f"{sum(r['failed'] for r in runs)} failed)")
+        for index, run in enumerate(runs, 1):
+            tok = run["tokens"]
+            print(f"  {index:2d}. {run['agent']} ({run['model'] or 'no model'}) "
+                  f"{run['turns']} turns · {_money(run['total'])} public-rate "
+                  f"[in={tok.get('input', 0)}, out={tok.get('output', 0)}, "
+                  f"cache_r={tok.get('cacheRead', 0)}, cache_w={tok.get('cacheWrite', 0)}] "
+                  f"{'FAILED' if run['failed'] else run['model_key'] or 'unpriced'}")
+        if runs:
+            print(f"  Subtotal: {_money(None if any(r['total'] is None for r in runs) else sum(r['total'] for r in runs))}")
+    print(f"Workers public-rate estimate: {_money(report['worker_priced_usd'])}")
+    print(f"Mixed-method total (logged main + priced workers): {_money(report['total_usd'])}")
+    print("Rates are public estimates, not provider invoices; missing model/cache rates fail closed.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
