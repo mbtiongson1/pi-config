@@ -1,105 +1,65 @@
 ---
 name: pi-config
-description: Manage the pi configuration from https://github.com/mbtiongson1/pi-config. Run when the user mentions "/pi-config", asks to update/sync/reinstall their pi configuration, or manage the pi config.
-version: 1.0.0
+description: Manage the user's Pi configuration from https://github.com/mbtiongson1/pi-config. Use for /pi-config, update, reinstall, sync, or diff; v1.10 requires installing the bundled pi-cost skill on every update/reinstall.
+version: 1.10.0
 ---
 
-# pi-config
+# pi-config v1.10 — mandatory pi-cost on Update and Reinstall
 
-Help the user manage their pi configuration from the local `pi-config` repository `/Users/marcotiongson/Documents/pi-config`.
+Locate the local `mbtiongson1/pi-config` clone (usually `~/pi-config` on
+Termux/Linux or `~/Documents/pi-config` on macOS). Confirm its remote before
+pulling. Use the repository's actual default branch (`master` here), not a
+hard-coded `main`. Do not reset or overwrite unrelated local edits.
 
-## Action flow
+If the user has not specified an action, ask: **Update, Reinstall, Sync, or
+Diff?** If an action was specified, proceed without repeating the question.
 
-When this skill is invoked:
-1. Ask the user if they want to:
-   - **Update** (pull latest and layer over existing config)
-   - **Reinstall** (clean wipe, then copy fresh from repo)
-   - **Sync** (push current `~/.pi/agent/` state back to the repo)
-   - **Diff** (show differences between ~/.pi/agent/ and the repo)
-2. Carry out whichever they choose by running the commands below.
+## Update (additive)
 
-### Action 1: Update
-Pull the latest from https://github.com/mbtiongson1/pi-config and copy agents, extensions, prompts, and bin into `~/.pi/agent/` without removing anything already there.
+1. `git -C "$repo" pull --ff-only origin master`. If local changes block it,
+   stop rather than discarding them; a clean worktree can be used to stage a
+   reviewed update.
+2. Copy managed `agents/`, `extensions/`, `prompts/`, and `bin/` *contents*
+   from the checkout into their peers under `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}`.
+   Use `mkdir -p "$dest/$dir"; cp -R "$repo/$dir/." "$dest/$dir/"`.
+   Do not delete other installed resources.
+3. **Mandatory, non-optional:** `bash "$repo/bin/install-pi-cost.sh"`. It
+   verifies pi-config `VERSION=1.10.0` against `skills/pi-cost/SKILL.md` and
+   installs/verifies the full versioned bundle in `<agent-dir>/skills/pi-cost`.
+   If this command fails, report Update **incomplete**. Do not silently skip
+   pricing data or register `pi-cost` under optional packages.
+4. Follow the optional package check below for *other* packages. Reload Pi to
+   discover updated resources.
 
-Steps to execute:
-1. Navigate to `/Users/marcotiongson/Documents/pi-config` and run:
-   ```bash
-   git pull origin main
-   ```
-2. Copy files additively (do not delete any existing files in destination):
-   ```bash
-   cp -R /Users/marcotiongson/Documents/pi-config/agents/ ~/.pi/agent/agents/
-   cp -R /Users/marcotiongson/Documents/pi-config/extensions/ ~/.pi/agent/extensions/
-   cp -R /Users/marcotiongson/Documents/pi-config/prompts/ ~/.pi/agent/prompts/
-   cp -R /Users/marcotiongson/Documents/pi-config/bin/ ~/.pi/agent/bin/
-   ```
-3. Run the **Post-Action Check** to prompt for missing optional packages.
+## Reinstall
 
-### Action 2: Reinstall
-Clean wipe and copy fresh from the repository, then reset settings.
+1. Pull safely as in Update; stop on conflicting local edits.
+2. Back up any user-owned customization. Wipe only the repo-managed
+   `agents/`, `extensions/`, `prompts/`, and `bin/` folders, then copy their
+   contents from the checkout. Do **not** wipe all user skills or sessions.
+3. Reset `settings.json` and `models.json` from their templates only with the
+   user's requested reinstall approval; preserve credentials (`auth.json`,
+   `trust.json`) and sessions.
+4. **Always** run `bash "$repo/bin/install-pi-cost.sh"` and verify success.
+   It safely overlays only the managed `pi-cost` skill. Without it Reinstall
+   is **incomplete**. Then do the optional package check and reload Pi.
 
-Steps to execute:
-1. Navigate to `/Users/marcotiongson/Documents/pi-config` and run:
-   ```bash
-   git pull origin main
-   ```
-2. Wipe the existing folders:
-   ```bash
-   rm -rf ~/.pi/agent/agents ~/.pi/agent/extensions ~/.pi/agent/prompts ~/.pi/agent/bin
-   ```
-3. Copy them fresh from the repository:
-   ```bash
-   cp -R /Users/marcotiongson/Documents/pi-config/agents/ ~/.pi/agent/agents/
-   cp -R /Users/marcotiongson/Documents/pi-config/extensions/ ~/.pi/agent/extensions/
-   cp -R /Users/marcotiongson/Documents/pi-config/prompts/ ~/.pi/agent/prompts/
-   cp -R /Users/marcotiongson/Documents/pi-config/bin/ ~/.pi/agent/bin/
-   ```
-4. Reset `settings.json` and `models.json` from templates:
-   ```bash
-   cp /Users/marcotiongson/Documents/pi-config/settings.json.template ~/.pi/agent/settings.json
-   cp /Users/marcotiongson/Documents/pi-config/models.json.template ~/.pi/agent/models.json
-   ```
-5. Run the **Post-Action Check** to prompt for missing optional packages.
+## Sync / Diff
 
-### Action 3: Sync
-Push the current `~/.pi/agent/` state back to the repository.
+- **Sync**: compare installed managed resources with the repo before copying;
+  exclude `auth.json`, `models.json`, `trust.json`, and sessions. Commit/push
+  only reviewed changes. The managed `skills/pi-cost/` source is mandatory:
+  do not replace its catalog with an older/unknown installed copy; check
+  `_meta.fetched_at` and provenance first.
+- **Diff**: compare `agents`, `extensions`, `prompts`, `bin`, and the mandatory
+  `skills/pi-cost/` bundle against the installed agent directory. Never diff
+  credentials or session logs into public output.
 
-Steps to execute:
-1. Copy folders from `~/.pi/agent/` into the local repository:
-   ```bash
-   cp -R ~/.pi/agent/agents/ /Users/marcotiongson/Documents/pi-config/agents/
-   cp -R ~/.pi/agent/extensions/ /Users/marcotiongson/Documents/pi-config/extensions/
-   cp -R ~/.pi/agent/prompts/ /Users/marcotiongson/Documents/pi-config/prompts/
-   cp -R ~/.pi/agent/bin/ /Users/marcotiongson/Documents/pi-config/bin/
-   ```
-   *(Note: Skip auth.json, models.json, trust.json, and sessions/)*
-2. Commit and push the changes:
-   ```bash
-   cd /Users/marcotiongson/Documents/pi-config
-   git add agents/ extensions/ prompts/ bin/
-   git commit -m "Sync: update pi-config configuration"
-   git push origin main
-   ```
+## Post-action optional package check
 
-### Action 4: Diff
-Show differences between the installed files in `~/.pi/agent/` and the local repository `/Users/marcotiongson/Documents/pi-config/`.
-
-Steps to execute:
-1. Compare agents, extensions, prompts, and bin:
-   ```bash
-   for dir in agents extensions prompts bin; do
-     echo "=== Diff for $dir ==="
-     diff -ru ~/.pi/agent/$dir/ /Users/marcotiongson/Documents/pi-config/$dir/ || true
-   done
-   ```
-
----
-
-## Post-Action Check
-
-After completing an **Update** or **Reinstall**:
-1. Check the `optional-packages.json` file in the repo `/Users/marcotiongson/Documents/pi-config/optional-packages.json`.
-2. Read the packages listed in `~/.pi/agent/settings.json`.
-3. If any packages listed in `optional-packages.json` are not currently installed in `~/.pi/agent/settings.json`, ask the user if they would like to install them.
-4. If they agree to install a package, append it to the `"packages"` array in `~/.pi/agent/settings.json`.
-5. If the optional package entry contains `postInstallInstructions`, apply those instructions immediately after installation and report what was changed. For `npm:@quintinshaw/pi-dynamic-workflows`, preserve the local customization that makes foreground execution (`background: false`) the default while keeping explicit `background: true` available.
+After Update/Reinstall, read `optional-packages.json` and compare it to the
+installed `settings.json` packages. Ask whether to install *missing optional*
+packages. Apply their `postInstallInstructions` if approved. Preserve the
+foreground-default customization of `npm:@quintinshaw/pi-dynamic-workflows`.
+`pi-cost` is never part of this optional prompt: it is installed and verified
+by the required step above.

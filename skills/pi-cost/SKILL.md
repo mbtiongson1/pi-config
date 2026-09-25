@@ -4,7 +4,7 @@ description: >-
   Report cost and token usage for the active Pi session, direct worker runs and
   nested workers. The main orchestrator retains its harness-recorded cost;
   worker inference uses current Gaia skill-cost/LiteLLM public model and cache rates.
-version: 1.1.0
+version: 1.10.0
 ---
 
 # /pi-cost — Pi session and worker cost
