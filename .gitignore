@@ -27,6 +27,8 @@ yarn.lock
 ## Cache
 .cache/
 *.tmp
+__pycache__/
+*.pyc
 
 ## System
 $RECYCLE.BIN/

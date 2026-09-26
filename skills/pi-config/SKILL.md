@@ -61,5 +61,8 @@ After Update/Reinstall, read `optional-packages.json` and compare it to the
 installed `settings.json` packages. Ask whether to install *missing optional*
 packages. Apply their `postInstallInstructions` if approved. Preserve the
 foreground-default customization of `npm:@quintinshaw/pi-dynamic-workflows`.
+For `npm:pi-codex-computer-use`, only offer on macOS where Codex CLI and
+Codex.app / ChatGPT.app are present, run `bash "$repo/bin/install-codex-computer-use.sh"`
+upon installation, and remind the user to verify permissions via `--doctor`.
 `pi-cost` is never part of this optional prompt: it is installed and verified
 by the required step above.
