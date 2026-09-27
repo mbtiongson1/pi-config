@@ -82,11 +82,34 @@ by diffing agents, extensions, prompts, and bin.
 | `skills/pi-cost/` | Mandatory v1.10.0 skill, cost calculator, license/notice, and auto-refreshing Gaia/LiteLLM price catalog |
 | `bin/install-pi-cost.sh` | Required idempotent, verified install step on Update and Reinstall |
 | `VERSION` | pi-config release version (`1.10.0`) |
+| `bin/install-codex-computer-use.sh` | Optional installer & health-check runner for Codex Computer Use on macOS |
+| `docs/codex-computer-use.md` | Guide for Codex Computer Use integration, doctor, and permissions |
 | `optional-packages.json` | List of *other* optional packages/extensions to prompt for installation |
 
 ## What's NOT Committed (stays local)
 
 `auth.json` · `models.json` · `trust.json` · `sessions/` · any API keys or proxy config
+
+---
+
+## Optional Integrations
+
+### Codex Computer Use (macOS)
+Give Pi agents native access to macOS desktop inspection and control using `pi-codex-computer-use`.
+
+- **Platform**: macOS only
+- **Prerequisites**: Pi CLI, Codex CLI, Codex.app / ChatGPT.app (`com.openai.codex`), Accessibility and Screen Recording permissions.
+- **Install / Verify**:
+  ```bash
+  bash bin/install-codex-computer-use.sh          # Idempotent install
+  bash bin/install-codex-computer-use.sh --doctor # Status check
+  bash bin/install-codex-computer-use.sh --smoke-test # Live tool verification
+  ```
+- **Disable**:
+  ```bash
+  bash bin/install-codex-computer-use.sh --disable
+  ```
+- Full guide: [`docs/codex-computer-use.md`](docs/codex-computer-use.md)
 
 ---
 

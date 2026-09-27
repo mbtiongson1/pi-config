@@ -19,5 +19,23 @@
       "Customize the installed package so its workflow tool resolves omitted background as params.background ?? loadWorkflowSettings({ cwd }).defaultBackground ?? false; preserve explicit background: true as the opt-in for detached delivery.",
       "Run /reload after applying the customization."
     ]
+  },
+  {
+    "package": "npm:pi-codex-computer-use",
+    "name": "Codex Computer Use",
+    "description": "Give Pi agents access to Codex's native macOS computer-use capabilities.",
+    "platform": "darwin",
+    "requires": [
+      "macOS",
+      "Codex CLI",
+      "Codex.app",
+      "Accessibility permission",
+      "Screen Recording permission"
+    ],
+    "postInstallInstructions": [
+      "Run `bash bin/install-codex-computer-use.sh` (or `python3 bin/codex-computer-use.py install`) to configure the Codex app-server bridge and verify readiness.",
+      "Ensure Accessibility and Screen Recording permissions are granted in macOS System Settings > Privacy & Security.",
+      "Run `bash bin/install-codex-computer-use.sh --doctor` or `/computer-use status` in Pi to verify status."
+    ]
   }
 ]
