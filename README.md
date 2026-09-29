@@ -75,7 +75,7 @@ by diffing agents, extensions, prompts, and bin.
 | Path | Purpose |
 |------|---------|
 | `agents/` | Custom subagents (planner, reviewer, scout, worker) |
-| `extensions/` | Custom pi extensions |
+| `extensions/` | Custom pi extensions (including the last-message/cache status) |
 | `prompts/` | Prompt templates |
 | `bin/` | Utility scripts |
 | `settings.json.template` | Base settings — fill in your provider + models |
