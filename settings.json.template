@@ -21,7 +21,6 @@
     "keepRecentTokens": 20000
   },
   "showCacheMissNotices": true,
-  "cacheTtlMs": 1800000,
   "pi-image-gen": {
     "defaultModel": "gpt-image-2"
   },
