@@ -8,6 +8,10 @@
     "description": "Legacy Antigravity OAuth provider (retained for Gemini 3.5 Flash Lite support)"
   },
   {
+    "package": "npm:@amaster.ai/pi-image-gen",
+    "description": "Image generation extension (image_generate tool) for raster asset generation and image-to-image edits."
+  },
+  {
     "package": "npm:pi-voice-stt",
     "description": "Pi Voice STT Extension with Termux TTS. See docs/pi-voice-stt-setup.md for hardware button routing."
   },
