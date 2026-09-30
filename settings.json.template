@@ -22,6 +22,11 @@
   },
   "showCacheMissNotices": true,
   "cacheWarming": "idle",
+  "modelCacheWarming": {
+    "antigravity/*flash*": "off",
+    "*gpt-6-luna*": "streaming",
+    "default": "idle"
+  },
   "pi-image-gen": {
     "defaultModel": "gpt-image-2"
   },
@@ -35,13 +40,13 @@
     "antigravity/gemini-3.6-flash",
     "antigravity/gemini-3.5-flash",
     "google-antigravity/gemini-3.5-flash-lite",
-    "openai-codex/gpt-5.6-luna",
-    "openai-codex/gpt-5.6-sol",
-    "openai-codex/gpt-5.6-terra",
-    "openai-codex/gpt-6-astra",
-    "openai-codex/gpt-6-luna",
-    "openai-codex/gpt-6-sol",
-    "openai-codex/gpt-6.1-sol",
+    "openai/gpt-5.6-luna",
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-terra",
+    "openai/gpt-6-astra",
+    "openai/gpt-6-luna",
+    "openai/gpt-6-sol",
+    "openai/gpt-6.1-sol",
     "cline/cohere/north-mini-code:free",
     "cline/google/gemma-4-31b-it:free",
     "cline/liquid/lfm-2.5-1.2b-instruct:free",

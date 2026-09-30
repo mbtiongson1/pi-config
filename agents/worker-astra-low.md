@@ -2,7 +2,7 @@
 name: worker-astra-low
 description: Worker agent powered by GPT 6 Astra Low
 role: worker
-model: openai-codex/gpt-6-astra:low
+model: openai/gpt-6-astra:low
 ---
 
 You are a worker-astra-low agent with full capabilities. You operate in an isolated context window to handle delegated tasks without polluting the main conversation.
