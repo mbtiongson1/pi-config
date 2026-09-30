@@ -23,6 +23,7 @@
   "showCacheMissNotices": true,
   "cacheWarming": "idle",
   "modelCacheWarming": {
+    "antigravity/gemini-3.8-flash": "force",
     "antigravity/*flash*": "streaming",
     "*gpt-6-luna*": "streaming",
     "default": "idle"

@@ -93,6 +93,12 @@ by diffing agents, extensions, prompts, and bin.
 
 ---
 
+## Antigravity cache warming
+
+The default Pi template opts `antigravity/gemini-3.8-flash` into the extension's guarded `force` warming policy. Other Antigravity Flash models retain the existing streaming-only policy. The model template supplies a five-minute scheduling hint; it is a local Pi refresh cadence, **not a published or guaranteed Antigravity cache TTL**. The extension may override Pi's default savings decision only inside its estimated per-refresh miss-premium guard, and Pi's own active/idle safety windows still apply. A completed refresh is not itself proof that the provider reported a cache hit.
+
+---
+
 ## Optional Integrations
 
 ### Statusline Bloat Manager (`/statusline`)

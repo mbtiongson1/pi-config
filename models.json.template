@@ -3,7 +3,8 @@
     "antigravity": {
       "modelOverrides": {
         "gemini-3.8-flash": {
-          "contextWindow": 272000
+          "contextWindow": 272000,
+          "promptCache": { "short": 300, "long": 300 }
         },
         "gemini-3.7-flash": {
           "contextWindow": 272000
@@ -13,7 +14,8 @@
     "google-antigravity": {
       "modelOverrides": {
         "gemini-3.8-flash": {
-          "contextWindow": 272000
+          "contextWindow": 272000,
+          "promptCache": { "short": 300, "long": 300 }
         },
         "gemini-3.7-flash": {
           "contextWindow": 272000
