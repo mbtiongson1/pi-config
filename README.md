@@ -138,18 +138,34 @@ Give Pi agents native access to macOS desktop inspection and control using `pi-c
 
 ---
 
-### Jev (System One) & Semantic MCP Search
-Fast probabilistic decision layer and semantic MCP tool discovery:
+### Jev (System One) & Selectable Decision Engine
+Fast probabilistic decision layer, semantic MCP tool discovery, and reflex classification:
 
 - **Features**:
-  - Semantic tool discovery via Jev (`mcp({ search: "...", searchMode: "semantic" })`).
-  - Bundled statusline token & cost meter (`extensions/jev-cost.ts`) displaying `⚡ Jev: <tokens> in ($<cost>)`.
+  - **Selectable Classifier Engines** (`extensions/jev-classifier.ts`): Switch seamlessly between actual TypeSafe Jev (`openrouter/~typesafe/jev-latest` / `typesafe`) and lightweight LLM mimics (`antigravity/gemini-3.8-flash` or `openai/gpt-6-luna` with thinking: off).
+  - **Pi Tool (`classify`)**: Evaluates discrete questions (choice, bool, score) over arbitrary JSON states.
+  - **Subagent (`jev-wannabe`)**: Specialized agent for isolated decision routing and classification.
+  - **Telemetry in Statusline**: Real-time token and cost meter (`⚡ Jev [actual|flash|luna]`) with zero extra footprint.
+- **Commands**:
+  - `/classifier mode [actual|flash|luna|auto]` — Switch active engine
+  - `/classifier` or `/jev` — Interactive picker and telemetry review
 - **Install & Setup**:
   ```bash
   bash bin/install-jev.sh
   ~/.pi/agent/npm/node_modules/.bin/pi-mcp-adapter key set systemone
   ```
-- Or run `/mcp-adapter jev setup` directly in Pi for guided setup.
+
+---
+
+### OpenAI Fast Mode (`/fast`)
+Enables OpenAI priority service tier routing directly inside Pi:
+
+- **Package**: `npm:@benvargas/pi-openai-fast` (in `optional-packages.json`)
+- **Commands**:
+  - `/fast` — Toggle fast mode on/off
+  - `/fast status` — Inspect priority tier status on active model
+  - `--fast` — CLI flag on startup
+- **Supported Models**: `openai/*`, `openai-codex/*` (GPT-5 and GPT-6 families).
 
 ---
 

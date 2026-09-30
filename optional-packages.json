@@ -51,5 +51,15 @@
       "Store your System One API key securely: `~/.pi/agent/npm/node_modules/.bin/pi-mcp-adapter key set systemone`.",
       "Run `/mcp-adapter jev setup` in Pi to complete guided setup."
     ]
+  },
+  {
+    "package": "npm:@benvargas/pi-openai-fast",
+    "name": "OpenAI Fast Mode",
+    "description": "Enables /fast mode and service_tier=priority routing for OpenAI and OpenAI Codex models.",
+    "postInstallInstructions": [
+      "Use /fast to toggle priority service tier on/off.",
+      "Use /fast status to verify model routing.",
+      "Use the --fast CLI flag to launch Pi with fast mode enabled."
+    ]
   }
 ]
