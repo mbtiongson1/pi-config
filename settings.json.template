@@ -21,6 +21,7 @@
     "keepRecentTokens": 20000
   },
   "showCacheMissNotices": true,
+  "cacheWarming": "idle",
   "pi-image-gen": {
     "defaultModel": "gpt-image-2"
   },
@@ -37,6 +38,10 @@
     "openai-codex/gpt-5.6-luna",
     "openai-codex/gpt-5.6-sol",
     "openai-codex/gpt-5.6-terra",
+    "openai-codex/gpt-6-astra",
+    "openai-codex/gpt-6-luna",
+    "openai-codex/gpt-6-sol",
+    "openai-codex/gpt-6.1-sol",
     "cline/cohere/north-mini-code:free",
     "cline/google/gemma-4-31b-it:free",
     "cline/liquid/lfm-2.5-1.2b-instruct:free",

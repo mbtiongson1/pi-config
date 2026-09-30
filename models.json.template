@@ -19,6 +19,57 @@
           "contextWindow": 272000
         }
       }
+    },
+    "openai-codex": {
+      "modelOverrides": {
+        "gpt-6-astra": {
+          "contextWindow": 1000000,
+          "maxTokens": 128000,
+          "promptCache": { "short": 300, "long": 1800 }
+        },
+        "gpt-6-luna": {
+          "contextWindow": 1000000,
+          "maxTokens": 128000,
+          "promptCache": { "short": 300, "long": 1800 }
+        },
+        "gpt-6-sol": {
+          "contextWindow": 1000000,
+          "maxTokens": 128000,
+          "promptCache": { "short": 300, "long": 1800 }
+        },
+        "gpt-6.1-sol": {
+          "contextWindow": 1000000,
+          "maxTokens": 128000,
+          "promptCache": { "short": 300, "long": 1800 }
+        }
+      }
+    },
+    "openai": {
+      "modelOverrides": {
+        "gpt-5.6-luna": {
+          "contextWindow": 1000000,
+          "maxTokens": 1000000,
+          "promptCache": { "short": 300, "long": 1800 }
+        },
+        "gpt-5.6-sol": {
+          "promptCache": { "short": 300, "long": 1800 }
+        },
+        "gpt-5.6-terra": {
+          "promptCache": { "short": 300, "long": 1800 }
+        },
+        "gpt-6-astra": {
+          "promptCache": { "short": 300, "long": 1800 }
+        },
+        "gpt-6-luna": {
+          "promptCache": { "short": 300, "long": 1800 }
+        },
+        "gpt-6-sol": {
+          "promptCache": { "short": 300, "long": 1800 }
+        },
+        "gpt-6.1-sol": {
+          "promptCache": { "short": 300, "long": 1800 }
+        }
+      }
     }
   }
 }

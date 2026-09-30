@@ -75,7 +75,8 @@ by diffing agents, extensions, prompts, and bin.
 | Path | Purpose |
 |------|---------|
 | `agents/` | Custom subagents (planner, reviewer, scout, worker) |
-| `extensions/` | Custom pi extensions (including the last-message/cache status) |
+| `extensions/` | Custom pi extensions (including `/statusline` bloat manager and last-message/cache status) |
+| `statusline.json.template` | Default statusline settings (`showExtensions: false` clean default) |
 | `prompts/` | Prompt templates |
 | `bin/` | Utility scripts |
 | `settings.json.template` | Base settings — fill in your provider + models |
@@ -93,6 +94,24 @@ by diffing agents, extensions, prompts, and bin.
 ---
 
 ## Optional Integrations
+
+### Statusline Bloat Manager (`/statusline`)
+Control statusline bloat from extensions with clean-by-default behavior:
+
+- **Clean Default**: Extension statuses are suppressed by default unless explicitly specified.
+- **Commands**:
+  - `/statusline` — Open interactive picker menu
+  - `/statusline hide` — Hide extension statuses (clean mode)
+  - `/statusline show` — Show extension statuses
+  - `/statusline hide all` — Hide entire footer/statusline (zen view)
+  - `/statusline show all` — Show full footer and all extension statuses
+  - `/statusline toggle` / `/statusline toggle all` — Toggle visibility
+  - `/statusline block <key>` / `/statusline allow <key>` / `/statusline only <key>` — Fine-grained key filtering
+  - `/statusline status` / `/statusline list` — View current state and active keys in memory
+  - `/statusline reset` — Reset to default clean state
+- **Config**: Persisted to `~/.pi/agent/statusline.json` across sessions.
+
+---
 
 ### Codex Computer Use (macOS)
 Give Pi agents native access to macOS desktop inspection and control using `pi-codex-computer-use`.
