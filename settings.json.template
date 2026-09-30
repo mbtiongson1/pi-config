@@ -23,7 +23,7 @@
   "showCacheMissNotices": true,
   "cacheWarming": "idle",
   "modelCacheWarming": {
-    "antigravity/*flash*": "off",
+    "antigravity/*flash*": "streaming",
     "*gpt-6-luna*": "streaming",
     "default": "idle"
   },

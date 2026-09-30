@@ -70,11 +70,11 @@ export function resolveModelWarmingPolicy(
 	}
 
 	// 2. Canonical rules:
-	// Flash / ultra-fast models (Antigravity Flash) -> off
+	// Flash / ultra-fast models (Antigravity Flash) -> streaming
 	if (isAntigravityFlash(provider, id)) {
 		return {
-			policy: "off",
-			reason: `Antigravity flash model (${fullKey}) -> warming off`,
+			policy: "streaming",
+			reason: `Antigravity flash model (${fullKey}) -> streaming warming only (off during idle)`,
 			source: "rule",
 		};
 	}
