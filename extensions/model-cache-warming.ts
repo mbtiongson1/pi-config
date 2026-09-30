@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export type CacheWarmingPolicy = "off" | "streaming" | "idle";
+export type CacheWarmingPolicy = "off" | "streaming" | "idle" | "force";
 
 export interface PolicyResolution {
 	policy: CacheWarmingPolicy;
@@ -57,7 +57,7 @@ export function resolveModelWarmingPolicy(
 	if (customMap && typeof customMap === "object") {
 		for (const [pattern, rawPolicy] of Object.entries(customMap)) {
 			const policy = rawPolicy.toLowerCase() as CacheWarmingPolicy;
-			if (policy !== "off" && policy !== "streaming" && policy !== "idle") continue;
+			if (policy !== "off" && policy !== "streaming" && policy !== "idle" && policy !== "force") continue;
 
 			if (matchWildcard(pattern, fullKey) || matchWildcard(pattern, id)) {
 				return {
@@ -117,6 +117,21 @@ export default function modelCacheWarming(pi: ExtensionAPI): void {
 		const settings = pi.getSettings?.() as unknown as Record<string, any> | undefined;
 		const resolution = resolveModelWarmingPolicy(model, settings);
 
+		// Policy: "force" -> bypass Pi's minimum expected-savings threshold for this explicitly opted-in model,
+		// but only when the catalog-estimated cache-miss premium stays within the per-refresh budget.
+		if (resolution.policy === "force") {
+			const maxMissPremium = 0.002;
+			if (
+				typeof event.missCost !== "number" ||
+				!Number.isFinite(event.missCost) ||
+				event.missCost <= 0 ||
+				event.missCost > maxMissPremium
+			) {
+				return { action: "stop" };
+			}
+			return { action: "warm" };
+		}
+
 		// Policy: "off" -> unconditionally stop warming
 		if (resolution.policy === "off") {
 			return { action: "stop" };
@@ -169,6 +184,7 @@ export default function modelCacheWarming(pi: ExtensionAPI): void {
 			`  - off:       Never warm cache`,
 			`  - streaming: Warm during tool/turn execution only; stop when idle`,
 			`  - idle:      Warm during streaming AND when idle waiting for user`,
+			`  - force:     Override Pi's savings threshold within the extension's $0.002 miss-premium cap`,
 		].join("\n");
 
 		if (ctx.hasUI && ctx.ui?.notify) {

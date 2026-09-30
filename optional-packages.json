@@ -41,5 +41,15 @@
       "Ensure Accessibility and Screen Recording permissions are granted in macOS System Settings > Privacy & Security.",
       "Run `bash bin/install-codex-computer-use.sh --doctor` or `/computer-use status` in Pi to verify status."
     ]
+  },
+  {
+    "package": "npm:pi-mcp-adapter",
+    "name": "Jev & MCP Adapter",
+    "description": "MCP adapter with support for Jev (System One) semantic tool discovery and fast decision gating.",
+    "postInstallInstructions": [
+      "Run `bash bin/install-jev.sh` to install the Jev statusline extension and configure permissions.",
+      "Store your System One API key securely: `~/.pi/agent/npm/node_modules/.bin/pi-mcp-adapter key set systemone`.",
+      "Run `/mcp-adapter jev setup` in Pi to complete guided setup."
+    ]
   }
 ]

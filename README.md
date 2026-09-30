@@ -132,4 +132,19 @@ Give Pi agents native access to macOS desktop inspection and control using `pi-c
 
 ---
 
+### Jev (System One) & Semantic MCP Search
+Fast probabilistic decision layer and semantic MCP tool discovery:
+
+- **Features**:
+  - Semantic tool discovery via Jev (`mcp({ search: "...", searchMode: "semantic" })`).
+  - Bundled statusline token & cost meter (`extensions/jev-cost.ts`) displaying `⚡ Jev: <tokens> in ($<cost>)`.
+- **Install & Setup**:
+  ```bash
+  bash bin/install-jev.sh
+  ~/.pi/agent/npm/node_modules/.bin/pi-mcp-adapter key set systemone
+  ```
+- Or run `/mcp-adapter jev setup` directly in Pi for guided setup.
+
+---
+
 For provider/model setup, see [pi.dev docs](https://pi.dev).
