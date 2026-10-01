@@ -119,6 +119,20 @@ Control statusline bloat from extensions with clean-by-default behavior:
 
 ---
 
+### Completion Sound Effects (`/sound`)
+Audio notification cues on task completion:
+- **Agent Settled**: Plays audio chime when main agent completes all actions and reaches idle.
+- **Subagent Finish**: Plays a distinct audio chime when delegated subagent tool completes.
+- **Cross-platform**: Auto-detects Android/Termux (`termux-media-player`), macOS (`afplay`), Linux PulseAudio (`paplay`), ALSA (`aplay`), and `mpv`.
+- **Commands**:
+  - `/sound` — View status and active sound paths
+  - `/sound toggle` — Mute/unmute sounds
+  - `/sound test` — Test main agent chime
+  - `/sound test-subagent` — Test subagent chime
+- **Config**: Persisted to `~/.pi/agent/sounds.json`.
+
+---
+
 ### Codex Computer Use (macOS)
 Give Pi agents native access to macOS desktop inspection and control using `pi-codex-computer-use`.
 
