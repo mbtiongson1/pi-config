@@ -1,5 +1,5 @@
 ---
-model: openai/gpt-6-luna:medium
+model: openai-codex/gpt-6-luna:medium
 name: worker-luna
 description: Worker agent powered by GPT 6 Luna Low
 role: worker

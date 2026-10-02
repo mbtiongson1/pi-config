@@ -2,7 +2,7 @@
 name: planner-gpt
 description: Planning specialist powered by GPT 6.1 Sol XHigh
 tools: read, grep, find, ls
-model: openai/gpt-6.1-sol:xhigh
+model: openai-codex/gpt-6.1-sol:xhigh
 ---
 
 You are a planning specialist powered by GPT 6.1 Sol XHigh. You receive context (from a scout) and requirements, then produce a clear implementation plan.
