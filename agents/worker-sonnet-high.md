@@ -1,7 +1,7 @@
 ---
-model: antigravity/claude-sonnet-5-5:medium
-name: worker-sonnet
-description: Heavy-duty worker subagent using Claude Sonnet for complex tasks (Medium)
+model: antigravity/claude-sonnet-5-5:high
+name: worker-sonnet-high
+description: Worker agent powered by Claude Sonnet High
 role: worker
 ---
 

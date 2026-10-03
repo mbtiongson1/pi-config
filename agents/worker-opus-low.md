@@ -1,7 +1,7 @@
 ---
-model: antigravity/claude-opus-5-5:medium
-name: worker-opus
-description: Worker agent powered by Claude Opus Medium
+model: antigravity/claude-opus-5-5:low
+name: worker-opus-low
+description: Worker agent powered by Claude Opus Low
 role: worker
 ---
 
