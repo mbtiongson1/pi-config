@@ -1,5 +1,5 @@
 ---
-model: openai-codex/gpt-6-luna:high
+model: openai/gpt-6-luna:high
 name: worker-luna-high
 description: Image and creative asset subagent powered by GPT 6 Luna High
 role: worker
