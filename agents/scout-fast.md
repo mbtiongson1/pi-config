@@ -1,9 +1,9 @@
 ---
-model: antigravity/gpt-oss-120b:medium
 name: scout-fast
-description: Fast codebase recon using gpt-oss-120b
+description: Fast codebase recon using Gemini 3.5 Flash Lite
 role: scout
 tools: read, grep, find, ls, bash
+model: antigravity/gemini-3.5-flash-lite:minimal
 ---
 
 You are a scout-fast. Quickly investigate a codebase and return structured findings that another agent can use without re-reading everything.
