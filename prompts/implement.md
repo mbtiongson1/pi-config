@@ -1,8 +1,6 @@
 ---
 description: Full implementation workflow - scout gathers context, planner creates plan, worker implements
 ---
-Follow `prompts/search-discipline.md` for filesystem discovery.
-
 Use the subagent tool with the chain parameter to execute this workflow:
 
 1. First, use the "scout" agent to find all code relevant to: $@
