@@ -8,6 +8,15 @@
     "description": "Legacy Antigravity OAuth provider (retained for Gemini 3.5 Flash Lite support)"
   },
   {
+    "package": "git:github.com/J3fp/piQuota",
+    "name": "Pi Quota",
+    "description": "Unified read-only quota monitor for Claude, Codex, Antigravity, and OpenCode (defaults to compact line surface).",
+    "postInstallInstructions": [
+      "Run `bash bin/ensure-quota-line.sh` to guarantee compact quota line display default.",
+      "Use /quota line for compact status, /quota box for expanded box, and /quota panel for full details."
+    ]
+  },
+  {
     "package": "npm:@amaster.ai/pi-image-gen",
     "description": "Image generation extension (image_generate tool) for raster asset generation and image-to-image edits."
   },

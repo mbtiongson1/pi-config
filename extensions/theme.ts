@@ -59,7 +59,7 @@ function getCustomThemes(): string[] {
  */
 function getAllAvailableThemes(): string[] {
 	const custom = getCustomThemes();
-	const builtins = ["dark", "light", "system"];
+	const builtins = ["dark", "system"];
 	const combined = [...custom];
 	for (const b of builtins) {
 		if (!combined.includes(b)) combined.push(b);

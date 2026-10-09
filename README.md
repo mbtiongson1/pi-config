@@ -78,7 +78,9 @@ by diffing agents, extensions, prompts, and bin.
 | `extensions/` | Custom pi extensions (including `/statusline` bloat manager and last-message/cache status) |
 | `statusline.json.template` | Default statusline settings (`showExtensions: false` clean default) |
 | `prompts/` | Prompt templates |
+| `themes/` | Dark-mode-first custom themes (`favor-cream`, `favor-dark`, `favor-events`, `favor-finance-green`, `favor-indigo`, `favor-watershed`, `finance-editorial`, `gaia-research`, `gaia-skill-tree`) |
 | `bin/` | Utility scripts |
+| `bin/ensure-quota-line.sh` | Idempotent quota surface verification ensuring compact `quota line` default |
 | `settings.json.template` | Base settings — fill in your provider + models |
 | `skills/pi-cost/` | Mandatory v1.10.0 skill, cost calculator, license/notice, and auto-refreshing Gaia/LiteLLM price catalog |
 | `bin/install-pi-cost.sh` | Required idempotent, verified install step on Update and Reinstall |

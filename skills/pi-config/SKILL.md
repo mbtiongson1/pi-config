@@ -19,7 +19,7 @@ Diff?** If an action was specified, proceed without repeating the question.
 1. `git -C "$repo" pull --ff-only origin master`. If local changes block it,
    stop rather than discarding them; a clean worktree can be used to stage a
    reviewed update.
-2. Copy managed `agents/`, `extensions/`, `prompts/`, and `bin/` *contents*
+2. Copy managed `agents/`, `extensions/`, `prompts/`, `themes/`, and `bin/` *contents*
    from the checkout into their peers under `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}`.
    Use `mkdir -p "$dest/$dir"; cp -R "$repo/$dir/." "$dest/$dir/"`.
    Do not delete other installed resources.
@@ -28,21 +28,26 @@ Diff?** If an action was specified, proceed without repeating the question.
    installs/verifies the full versioned bundle in `<agent-dir>/skills/pi-cost`.
    If this command fails, report Update **incomplete**. Do not silently skip
    pricing data or register `pi-cost` under optional packages.
-4. Follow the optional package check below for *other* packages. Reload Pi to
+4. **Mandatory quota line default:** `bash "$repo/bin/ensure-quota-line.sh"`.
+   Ensures Pi Quota defaults to the compact one-line surface (`quota line`)
+   rather than the expanded box, persisting `"quota": { "surface": "line" }`.
+5. Follow the optional package check below for *other* packages. Reload Pi to
    discover updated resources.
 
 ## Reinstall
 
 1. Pull safely as in Update; stop on conflicting local edits.
 2. Back up any user-owned customization. Wipe only the repo-managed
-   `agents/`, `extensions/`, `prompts/`, and `bin/` folders, then copy their
+   `agents/`, `extensions/`, `prompts/`, `themes/`, and `bin/` folders, then copy their
    contents from the checkout. Do **not** wipe all user skills or sessions.
 3. Reset `settings.json` and `models.json` from their templates only with the
    user's requested reinstall approval; preserve credentials (`auth.json`,
-   `trust.json`) and sessions.
+   `trust.json`), custom `"skills"` exclusion patterns, `"quota"` settings, and sessions.
 4. **Always** run `bash "$repo/bin/install-pi-cost.sh"` and verify success.
    It safely overlays only the managed `pi-cost` skill. Without it Reinstall
-   is **incomplete**. Then do the optional package check and reload Pi.
+   is **incomplete**.
+5. **Always** run `bash "$repo/bin/ensure-quota-line.sh"` to guarantee the
+   compact quota line default. Then do the optional package check and reload Pi.
 
 ## Sync / Diff
 
@@ -51,7 +56,7 @@ Diff?** If an action was specified, proceed without repeating the question.
   only reviewed changes. The managed `skills/pi-cost/` source is mandatory:
   do not replace its catalog with an older/unknown installed copy; check
   `_meta.fetched_at` and provenance first.
-- **Diff**: compare `agents`, `extensions`, `prompts`, `bin`, and the mandatory
+- **Diff**: compare `agents`, `extensions`, `prompts`, `themes`, `bin`, and the mandatory
   `skills/pi-cost/` bundle against the installed agent directory. Never diff
   credentials or session logs into public output.
 

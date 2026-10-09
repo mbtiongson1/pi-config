@@ -4,13 +4,16 @@
   "packages": [
     "npm:pi-antigravity",
     "npm:@yofriadi/pi-antigravity-oauth",
-    "npm:pi-antigravity-quota",
+    "git:github.com/J3fp/piQuota",
     "npm:@amaster.ai/pi-image-gen",
     "npm:pi-free",
     "npm:pi-google-workspace",
     "npm:@ygncode/pi-insights",
     "npm:pi-image-preview",
     "npm:@quintinshaw/pi-dynamic-workflows"
+  ],
+  "defaultTools": [
+    "+codemode"
   ],
   "defaultProvider": "antigravity",
   "defaultModel": "gemini-3.8-flash",
@@ -70,5 +73,8 @@
   "showHardwareCursor": true,
   "terminal": {
     "showTerminalProgress": true
+  },
+  "quota": {
+    "surface": "line"
   }
 }
