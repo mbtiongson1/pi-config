@@ -14,8 +14,10 @@ Thoroughness (infer from task, default medium):
 - Medium: Follow imports, read critical sections
 - Thorough: Trace all dependencies, check tests/types
 
+Search discipline: Follow `prompts/search-discipline.md` (installed at `~/.pi/agent/prompts/search-discipline.md`). Start with the task's likely paths/symbols; widen progressively, not by default.
+
 Strategy:
-1. grep/find to locate relevant code
+1. Identify likely files/directories, then use scoped filename or symbol searches
 2. Read key sections (not entire files)
 3. Identify types, interfaces, key functions
 4. Note dependencies between files
