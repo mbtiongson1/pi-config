@@ -62,6 +62,16 @@
     ]
   },
   {
+    "package": "npm:@parke.dev/pi-subagent",
+    "name": "Pi Subagents (Lukas Parke)",
+    "description": "Production-grade isolated subagents with persona files, live TUI widget, /subagents overlay, and background async execution."
+  },
+  {
+    "package": "npm:pi-background-tasks",
+    "name": "Pi Background Tasks",
+    "description": "Track long-running background shell commands and delegated read-only agents with a dedicated Shift+Down footer dock."
+  },
+  {
     "package": "npm:@benvargas/pi-openai-fast",
     "name": "OpenAI Fast Mode",
     "description": "Enables /fast mode and service_tier=priority routing for OpenAI and OpenAI Codex models.",

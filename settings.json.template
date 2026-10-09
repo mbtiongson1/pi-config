@@ -10,7 +10,8 @@
     "npm:pi-google-workspace",
     "npm:@ygncode/pi-insights",
     "npm:pi-image-preview",
-    "npm:@quintinshaw/pi-dynamic-workflows"
+    "npm:@parke.dev/pi-subagent",
+    "npm:pi-background-tasks"
   ],
   "defaultTools": [
     "+codemode"
