@@ -242,6 +242,16 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 
 	// Codemode tool_call safety: omit cargo-culted 60s timeout unless explicitly asked
 	pi.on("tool_call", (event) => {
+		if (event.toolName === "subagent" && event.input) {
+			const args = event.input as Record<string, any>;
+			const prefixAgentLabel = (task: Record<string, any>) => {
+				if (typeof task.agent !== "string" || typeof task.description !== "string" || !task.description) return;
+				const prefix = `${task.agent} · `;
+				if (!task.description.startsWith(prefix)) task.description = `${prefix}${task.description}`.slice(0, 60);
+			};
+			if (Array.isArray(args.tasks)) args.tasks.forEach(prefixAgentLabel);
+			else prefixAgentLabel(args);
+		}
 		if (event.toolName === "codemode" && event.input && typeof event.input.code === "string") {
 			const code = event.input.code;
 			// Detect standard copied 60s header
