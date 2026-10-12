@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 interface SubagentTaskState {
 	callId: string;
+	parentCallId: string;
 	label: string;
 	model: string;
 	thinking: string;
@@ -53,40 +54,6 @@ function formatDuration(ms: number): string {
 	return `${hours}h${remainingMinutes.toString().padStart(2, "0")}m`;
 }
 
-function resolveAgentMeta(agentName?: string): { model?: string; thinking?: string } {
-	if (!agentName) return {};
-	const candidatePaths = [
-		join(homedir(), ".pi", "agent", "agents", `${agentName}.md`),
-		join(process.cwd(), ".pi", "agents", `${agentName}.md`),
-	];
-	for (const p of candidatePaths) {
-		if (existsSync(p)) {
-			try {
-				const content = readFileSync(p, "utf-8");
-				const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-				if (frontmatterMatch) {
-					const lines = frontmatterMatch[1].split("\n");
-					let model: string | undefined;
-					let thinking: string | undefined;
-					for (const line of lines) {
-						const [k, ...rest] = line.split(":");
-						const val = rest.join(":").trim();
-						if (k.trim() === "model") model = val;
-						if (k.trim() === "thinking") thinking = val;
-					}
-					if (model && model.includes(":")) {
-						const parts = model.split(":");
-						model = parts[0];
-						if (!thinking) thinking = parts[1];
-					}
-					return { model, thinking };
-				}
-			} catch {}
-		}
-	}
-	return {};
-}
-
 const DESIRED_SUBAGENT_CONFIG = {
 	defaultTimeoutMs: 1800000,
 	stallAfterMs: 300000,
@@ -119,6 +86,7 @@ function ensureSubagentConfig(): void {
 
 export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 	const activeTasks = new Map<string, SubagentTaskState>();
+	const requestedAgents = new Map<string, string[]>();
 	let recentTerminal: SubagentTaskState | null = null;
 	let recentTerminalTimer: NodeJS.Timeout | null = null;
 	let ticker: NodeJS.Timeout | null = null;
@@ -156,7 +124,8 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 
 			if (displays.length === 1) return displays[0];
 			const first = displays[0];
-			const extra = ` (+${displays.length - 1} more)`;
+			const extraLabels = runningList.slice(1).map((task) => task.label).join(", ");
+			const extra = ` (+${displays.length - 1}: ${extraLabels})`;
 			return `${first}${theme.fg("dim", extra)}`;
 		}
 
@@ -191,6 +160,37 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 		if (text) {
 			currentContext.ui.setStatus("subagent", undefined);
 		}
+	}
+
+	function syncTaskResults(parentCallId: string, details: any): void {
+		const results = details?.results;
+		if (!Array.isArray(results) || results.length === 0) return;
+		const parentTask = Array.from(activeTasks.values()).find((task) => task.parentCallId === parentCallId);
+		const previousResults = results.map((_: unknown, index: number) => activeTasks.get(`${parentCallId}:${index}`));
+		for (const [key, task] of activeTasks) {
+			if (task.parentCallId === parentCallId) activeTasks.delete(key);
+		}
+		const now = Date.now();
+		results.forEach((result: any, index: number) => {
+			const state = result.state === "completed" ? "completed"
+				: result.state === "partial" ? "partial"
+				: result.state === "failed" || result.state === "lost" ? "failed"
+				: result.state === "cancelled" ? "interrupted"
+				: result.state === "timeout" ? "timed_out"
+				: result.state === "queued" ? "queued" : "running";
+			const key = `${parentCallId}:${index}`;
+			const previous = previousResults[index];
+			activeTasks.set(key, {
+				callId: key,
+				parentCallId,
+				label: requestedAgents.get(parentCallId)?.[index] || result.label || `task-${index + 1}`,
+				model: result.model || "",
+				thinking: result.thinking || "",
+				state,
+				startedAt: previous?.startedAt ?? parentTask?.startedAt ?? now,
+				lastUpdateAt: now,
+			});
+		});
 	}
 
 	function syncTicker(): void {
@@ -261,16 +261,15 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 		currentContext = ctx;
 		if (event.toolName === "subagent") {
 			const args = event.args || {};
-			const label = args.agent || args.description || (typeof args.task === "string" ? args.task.slice(0, 20) : "subagent");
-			const meta = resolveAgentMeta(args.agent);
-			const model = args.model || meta.model || (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "");
-			const thinking = args.thinking || meta.thinking || "low";
-
+			requestedAgents.set(event.toolCallId, Array.isArray(args.tasks)
+				? args.tasks.map((item: any) => typeof item?.agent === "string" ? item.agent : "")
+				: [typeof args.agent === "string" ? args.agent : ""]);
 			const taskState: SubagentTaskState = {
 				callId: event.toolCallId,
-				label,
-				model,
-				thinking,
+				parentCallId: event.toolCallId,
+				label: "subagent",
+				model: "",
+				thinking: "",
 				state: "running",
 				startedAt: Date.now(),
 				lastUpdateAt: Date.now(),
@@ -284,15 +283,10 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 	pi.on("tool_execution_update", (event, ctx) => {
 		currentContext = ctx;
 		if (event.toolName === "subagent") {
-			const task = activeTasks.get(event.toolCallId);
+			const task = Array.from(activeTasks.values()).find((entry) => entry.parentCallId === event.toolCallId);
 			if (task) {
 				task.lastUpdateAt = Date.now();
-				if (event.partialResult?.details?.results?.[0]) {
-					const res = event.partialResult.details.results[0];
-					if (res.model) task.model = res.model;
-					if (res.thinking) task.thinking = res.thinking;
-					if (res.state && res.state !== "queued") task.state = "running";
-				}
+				syncTaskResults(event.toolCallId, event.partialResult?.details);
 				updateStatusline();
 			}
 		}
@@ -301,8 +295,9 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 	pi.on("tool_execution_end", (event, ctx) => {
 		currentContext = ctx;
 		if (event.toolName === "subagent") {
-			const task = activeTasks.get(event.toolCallId);
+			const task = Array.from(activeTasks.values()).find((entry) => entry.parentCallId === event.toolCallId);
 			const duration = formatDuration(event.durationMs ?? (task ? Date.now() - task.startedAt : 0));
+			syncTaskResults(event.toolCallId, event.result?.details);
 			let state: SubagentTaskState["state"] = event.isError ? "failed" : "completed";
 
 			if (event.result?.details?.state) {
@@ -314,13 +309,17 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 				else if (s === "completed") state = "completed";
 			}
 
-			if (task) {
-				task.state = state;
-				task.endedAt = Date.now();
-				task.duration = duration;
-				activeTasks.delete(event.toolCallId);
+			const finalTask = Array.from(activeTasks.values()).find((entry) => entry.parentCallId === event.toolCallId) ?? task;
+			if (finalTask) {
+				if (!event.result?.details?.results?.length) finalTask.state = state;
+				finalTask.endedAt = Date.now();
+				finalTask.duration = duration;
+				for (const [key, entry] of activeTasks) {
+					if (entry.parentCallId === event.toolCallId) activeTasks.delete(key);
+				}
+				requestedAgents.delete(event.toolCallId);
 
-				recentTerminal = { ...task };
+				recentTerminal = { ...finalTask };
 				if (recentTerminalTimer) clearTimeout(recentTerminalTimer);
 				recentTerminalTimer = setTimeout(() => {
 					recentTerminal = null;
