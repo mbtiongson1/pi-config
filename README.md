@@ -34,7 +34,7 @@ Then check `optional-packages.json`. If any optional package is missing from `~/
 Pull the latest from https://github.com/mbtiongson1/pi-config
 and copy agents, extensions, prompts, and bin
 into ~/.pi/agent/ without removing anything already there.
-Run bash bin/install-pi-cost.sh from the repo and verify its success (mandatory).
+Run bash bin/install-pi-cost.sh and bash bin/install-append-system.sh from the repo and verify both succeed (mandatory).
 Then check optional-packages.json in the repo and ask
 if I want to install any listed packages that are missing from ~/.pi/agent/settings.json.
 ```
@@ -45,7 +45,7 @@ if I want to install any listed packages that are missing from ~/.pi/agent/setti
 Clone https://github.com/mbtiongson1/pi-config (or pull if already cloned),
 wipe ~/.pi/agent/agents, extensions, prompts, and bin,
 then copy them fresh from the repo.
-Run bash bin/install-pi-cost.sh from the repo and verify its success (mandatory).
+Run bash bin/install-pi-cost.sh and bash bin/install-append-system.sh from the repo and verify both succeed (mandatory).
 Also reset settings.json from the template.
 Then check optional-packages.json in the repo and ask
 if I want to install any listed packages that are missing from ~/.pi/agent/settings.json.
@@ -83,6 +83,8 @@ by diffing agents, extensions, prompts, and bin.
 | `bin/ensure-quota-line.sh` | Idempotent quota surface verification ensuring compact `quota line` default |
 | `settings.json.template` | Base settings — fill in your provider + models |
 | `skills/pi-cost/` | Mandatory v1.10.0 skill, cost calculator, license/notice, and auto-refreshing Gaia/LiteLLM price catalog |
+| `APPEND_SYSTEM.md` | Global engineering-discipline contract (Pi native system-prompt append) |
+| `bin/install-append-system.sh` | Required idempotent installer for the contract on Update and Reinstall; preserves user text |
 | `bin/install-pi-cost.sh` | Required idempotent, verified install step on Update and Reinstall |
 | `VERSION` | pi-config release version (`1.10.0`) |
 | `bin/install-codex-computer-use.sh` | Optional installer & health-check runner for Codex Computer Use on macOS |

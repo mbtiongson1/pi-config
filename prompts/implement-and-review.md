@@ -1,10 +1,9 @@
 ---
-description: Worker implements, reviewer reviews, worker applies feedback
+description: Implement a change, then get independent review and apply the feedback
 ---
-Use the subagent tool with the chain parameter to execute this workflow:
+Implement, then independently review: $@
 
-1. First, use the "worker" agent to implement: $@
-2. Then, use the "reviewer" agent to review the implementation from the previous step (use {previous} placeholder)
-3. Finally, use the "worker" agent to apply the feedback from the review (use {previous} placeholder)
-
-Execute this as a chain, passing output between steps via {previous}.
+1. **Implement** proportionally: tiny/localized work directly in the parent; larger or parallelizable work via `worker` subagents (`isolation:'worktree'` for parallel writers).
+2. **Verify** with targeted tests or runtime evidence before review.
+3. **Review** with an independent `reviewer` subagent that did not write the change; give it the goal, diff, and verification evidence. For tiny low-risk changes a focused self-review of the diff is sufficient; say so explicitly.
+4. **Apply** blocking findings, re-verify, and report what was fixed, what was deferred, and the final evidence.

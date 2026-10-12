@@ -34,7 +34,11 @@ Diff?** If an action was specified, proceed without repeating the question.
 5. **Mandatory Subagent & Codemode reliability:** `bash "$repo/bin/ensure-subagent-config.sh"`.
    Ensures `~/.pi/subagent.json` (30m execution budget, 5m stall probe, stall kill disabled),
    statusline allowed keys, and `subagent-monitor.ts` extension are persistently configured.
-6. Follow the optional package check below for *other* packages. Reload Pi to
+6. **Mandatory engineering contract:** `bash "$repo/bin/install-append-system.sh"`.
+   Idempotently writes the repo `APPEND_SYSTEM.md` into a marked block of
+   `<agent-dir>/APPEND_SYSTEM.md`, preserving any user text outside it. Never
+   edit `SYSTEM.md` or project `.pi/APPEND_SYSTEM.md` overrides.
+7. Follow the optional package check below for *other* packages. Reload Pi to
    discover updated resources.
 
 ## Reinstall
@@ -53,7 +57,9 @@ Diff?** If an action was specified, proceed without repeating the question.
    compact quota line default.
 6. **Always** run `bash "$repo/bin/ensure-subagent-config.sh"` to guarantee
    persistent subagent timeouts, stall policy, and visibility extensions.
-   Then do the optional package check and reload Pi.
+7. **Always** run `bash "$repo/bin/install-append-system.sh"`; Reinstall must
+   not wipe `<agent-dir>/APPEND_SYSTEM.md` (the installer refreshes only its
+   managed block). Then do the optional package check and reload Pi.
 
 ## Sync / Diff
 
@@ -62,7 +68,7 @@ Diff?** If an action was specified, proceed without repeating the question.
   only reviewed changes. The managed `skills/pi-cost/` source is mandatory:
   do not replace its catalog with an older/unknown installed copy; check
   `_meta.fetched_at` and provenance first.
-- **Diff**: compare `agents`, `extensions`, `prompts`, `themes`, `bin`, and the mandatory
+- **Diff**: compare `agents`, `extensions`, `prompts`, `themes`, `bin`, `APPEND_SYSTEM.md`, and the mandatory
   `skills/pi-cost/` bundle against the installed agent directory. Never diff
   credentials or session logs into public output.
 
