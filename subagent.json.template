@@ -1,0 +1,9 @@
+{
+  "defaultTimeoutMs": 1800000,
+  "stallAfterMs": 300000,
+  "stallKillAfterMs": 0,
+  "maxActiveProcesses": 4,
+  "maxGlobalActive": 16,
+  "maxQueuedTasks": 32,
+  "graceTurns": 2
+}

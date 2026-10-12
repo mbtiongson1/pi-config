@@ -28,7 +28,10 @@ Diff?** If an action was specified, proceed without repeating the question.
    installs/verifies the full versioned bundle in `<agent-dir>/skills/pi-cost`.
    If this command fails, report Update **incomplete**. Do not silently skip
    pricing data or register `pi-cost` under optional packages.
-4. Follow the optional package check below for *other* packages. Reload Pi to
+4. **Mandatory Subagent & Codemode reliability:** `bash "$repo/bin/ensure-subagent-config.sh"`.
+   Ensures `~/.pi/subagent.json` (30m execution budget, 5m stall probe, stall kill disabled),
+   statusline allowed keys, and `subagent-monitor.ts` extension are persistently configured.
+5. Follow the optional package check below for *other* packages. Reload Pi to
    discover updated resources.
 
 ## Reinstall
@@ -42,7 +45,10 @@ Diff?** If an action was specified, proceed without repeating the question.
    `trust.json`) and sessions.
 4. **Always** run `bash "$repo/bin/install-pi-cost.sh"` and verify success.
    It safely overlays only the managed `pi-cost` skill. Without it Reinstall
-   is **incomplete**. Then do the optional package check and reload Pi.
+   is **incomplete**.
+5. **Always** run `bash "$repo/bin/ensure-subagent-config.sh"` to guarantee
+   persistent subagent timeouts, stall policy, and visibility extensions.
+   Then do the optional package check and reload Pi.
 
 ## Sync / Diff
 

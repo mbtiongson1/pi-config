@@ -73,20 +73,23 @@ export default function statuslineExtension(pi: ExtensionAPI): void {
 
 		footerData.getExtensionStatuses = function (): ReadonlyMap<string, string> {
 			const original = footerData.__statuslineOriginalGetExtensionStatuses?.() ?? new Map();
-			if (!config.showExtensions) {
+			if (!config.showExtensions && config.allowedKeys.length === 0) {
 				return new Map();
-			}
-
-			if (config.allowedKeys.length === 0 && config.blockedKeys.length === 0) {
-				return original;
 			}
 
 			const filtered = new Map<string, string>();
 			for (const [key, value] of original) {
-				if (config.allowedKeys.length > 0 && !config.allowedKeys.includes(key)) {
+				if (config.blockedKeys.includes(key)) {
 					continue;
 				}
-				if (config.blockedKeys.includes(key)) {
+				if (!config.showExtensions) {
+					// Clean-by-default: only explicitly allowed keys pass through
+					if (config.allowedKeys.includes(key)) {
+						filtered.set(key, value);
+					}
+					continue;
+				}
+				if (config.allowedKeys.length > 0 && !config.allowedKeys.includes(key)) {
 					continue;
 				}
 				filtered.set(key, value);
@@ -186,7 +189,7 @@ export default function statuslineExtension(pi: ExtensionAPI): void {
 					statusLines.push(`    (no extensions are currently setting status)`);
 				} else {
 					for (const [k, v] of active) {
-						const isShown = config.showExtensions && (!config.allowedKeys.length || config.allowedKeys.includes(k)) && !config.blockedKeys.includes(k);
+						const isShown = (config.showExtensions || config.allowedKeys.includes(k)) && (!config.allowedKeys.length || config.allowedKeys.includes(k)) && !config.blockedKeys.includes(k);
 						const tag = isShown ? "[visible]" : "[hidden]";
 						const preview = v.length > 40 ? `${v.slice(0, 37)}...` : v;
 						statusLines.push(`    - ${k} ${tag}: "${preview}"`);

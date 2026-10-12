@@ -1,197 +1,183 @@
-# Subagent Thinking Levels — End-to-End Setup Guide
+# Pi Subagent & Thinking Levels — Architecture, Reliability, & Visibility Guide
 
-Agents in pi dispatch work via the **subagent extension**. This guide shows how to
-wire up **role templates** so every agent automatically runs with the right model
-and thinking level — without hardcoding anything in the agent `.md` files themselves.
+In Pi, agents dispatch isolated child work via the `@parke.dev/pi-subagent` package combined with the `subagent-monitor` extension. This guide documents how agent models, thinking levels, execution budgets, stall detection, active visibility, and recovery work.
 
 ---
 
-## How It Works
+## Architecture Overview
 
 ```
-agent file            agent-templates.json        subagent extension
-──────────────        ────────────────────        ──────────────────
-role: planner   →  { model: "...", thinkingLevel: "high" }  →  pi --model X --thinking-level high
+Parent Pi Agent
+  │
+  ├─► ~/.pi/subagent.json               (Reliability & timeout defaults)
+  ├─► ~/.pi/agent/agents/<agent>.md    (Agent persona, model, thinking, profile)
+  ├─► npm:@parke.dev/pi-subagent       (Child process orchestrator & isolation)
+  └─► extensions/subagent-monitor.ts   (Active statusline visibility & codemode guard)
 ```
 
-1. **Agent files** declare a `role:` (planner, worker, scout, reviewer, or custom).
-2. **`agent-templates.json`** maps each role to a model string and thinking level.
-3. The **subagent extension** reads the templates at call time, resolves the effective
-   config, and passes `--model` and `--thinking-level` to the spawned `pi` process.
-4. The **TUI call header** renders the role label and thinking level tag so you can
-   see at a glance what's running.
-
-Agent files can still override with explicit `model:` or `thinking_level:` frontmatter —
-those always win over the template.
+1. **Agent Definitions** (`~/.pi/agent/agents/*.md`) declare the agent's name, role, tools, model, and thinking level.
+2. **Global Policy** (`~/.pi/subagent.json`) defines process concurrency limits, execution timeouts, stall detection, and budget grace turns.
+3. **Execution Runtime** (`@parke.dev/pi-subagent`) spawns isolated `pi` CLI processes with `--mode json`, pipes events, and isolates worktrees when requested.
+4. **Visibility & TUI** (`extensions/subagent-monitor.ts`) hooks Pi tool execution events to surface running agents directly on the statusline with actual resolved models, effort levels, elapsed time, and terminal receipts.
 
 ---
 
-## Step 1 — Install the extension
+## Timeout & Stall Policy Defaults
 
-Copy `extensions/subagent/` into `~/.pi/agent/extensions/`:
-
-```bash
-cp -r extensions/subagent ~/.pi/agent/extensions/subagent
-```
-
-Or let the repo's install flow handle it (Update / Reinstall from the README).
-
-Add it to `~/.pi/agent/settings.json`:
+Configuration lives outside `node_modules` in `~/.pi/subagent.json`, surviving package updates:
 
 ```json
 {
-  "extensions": ["extensions/subagent/index.ts"]
+  "defaultTimeoutMs": 1800000,
+  "stallAfterMs": 300000,
+  "stallKillAfterMs": 0,
+  "maxActiveProcesses": 4,
+  "maxGlobalActive": 16,
+  "maxQueuedTasks": 32,
+  "graceTurns": 2
 }
 ```
 
+| Setting | Default Value | Purpose |
+|---|---|---|
+| `defaultTimeoutMs` | `1800000` (30m) | Total execution budget ceiling per task. Prevents unbounded unattended runs while giving heavy subagents ample time. |
+| `stallAfterMs` | `300000` (5m) | Non-destructive stall probe. If child process emits no events for 5 minutes, it is marked `stalled` and sent a liveness probe (`get_state`). |
+| `stallKillAfterMs` | `0` (Disabled) | Automatic stall termination window. Set to `0` to prevent premature process termination during long shell commands or slow model reasoning. |
+| `maxActiveProcesses`| `4` | Maximum concurrent child processes running in parallel in this session. |
+| `maxGlobalActive` | `16` | Machine-wide concurrent process limit across all Pi sessions. |
+| `maxQueuedTasks` | `32` | Maximum tasks queued before backpressure rejection. |
+| `graceTurns` | `2` | Number of wrap-up turns allowed after hitting a turn or cost budget to produce a final answer before termination. |
+
 ---
 
-## Step 2 — Configure your role templates
+## Active-Agent Visibility
 
-Copy the template file and fill in your model strings:
+Subagents are visible directly in the Pi statusline without requiring repeated `/subagents` commands:
 
+### Compact Status Format
+```
+worker-flash-high · Gemini 3.8 Flash · high · running · 2m14s
+```
+
+When multiple tasks run concurrently:
+```
+worker-flash-high · Gemini 3.8 Flash · high · running · 2m14s (+1 more)
+```
+
+### State Distinctions
+- **`queued`**: Waiting for concurrency slot.
+- **`running`**: Actively executing and producing events.
+- **`stalled`**: Silent for >5 minutes without emitting output (statusline highlights in warning color).
+- **`completed`**: Finished successfully.
+- **`failed`**: Exited with fatal error or non-zero code.
+- **`interrupted`**: Cancelled by operator or parent agent.
+- **`timed_out`**: Exceeded task execution budget.
+- **`partial`**: Reached turn/cost ceiling and concluded gracefully within grace turns.
+
+### Lifecycle Behavior
+- The duration ticks every second while tasks are active.
+- When all tasks finish, a terminal receipt (e.g. `completed · 2m14s` or `failed · 45s`) remains visible for 5 seconds.
+- After 5 seconds, the statusline entry clears completely. No background timers or permanent clutter remain.
+- `/subagents` remains available for deep inspection (inspecting worktrees, live output, steering, diffs).
+
+---
+
+## Agent Configuration & Thinking Levels
+
+Agent definitions live in `~/.pi/agent/agents/<name>.md`. Frontmatter controls the model, effort, and tool profile:
+
+```markdown
+---
+name: worker-flash-high
+description: High-effort 3.8 flash subagent, isolated context
+model: antigravity/gemini-3.8-flash:high
+role: worker
+profile: general
+tools: read, edit, write, bash
+---
+```
+
+### Model & Thinking Level Resolution
+1. **Explicit Call Arguments**: Passing `model` or `thinking` in the `subagent({...})` tool call always takes highest precedence.
+2. **Combined Shorthand**: Frontmatter can specify `model: provider/model-id:thinkingLevel` (e.g., `antigravity/gemini-3.8-flash:high`).
+3. **Explicit Frontmatter**: `model:` and `thinking:` fields in the frontmatter.
+4. **Parent Fallback**: If unspecified, inherits the parent session's active model and thinking level.
+
+Valid thinking levels: `off` · `minimal` · `low` · `medium` · `high` · `xhigh` · `max`.
+
+---
+
+## Partial Completion & Recovery Receipts
+
+When subagents conclude, wrap up under a budget limit, or are interrupted, they must provide structured receipts rather than generic success or failure claims.
+
+All worker agents follow this standard receipt structure:
+
+```markdown
+Output format when finished or wrapping up:
+
+## Status
+[completed | partial | blocked]
+
+## Completed
+What was done.
+
+## Files Changed
+- `path/to/file.ext` - what changed
+
+## Pending Work (if partial/blocked)
+What remains to be done.
+
+## Verification
+What checks/tests were run and results.
+
+## Resume Instructions (if partial/blocked)
+Next steps or commands to continue.
+```
+
+### Outcome Handling
+- **`completed`**: All tasks executed, verified, and finalized.
+- **`partial`**: Task hit a budget limit (`max_turns` or `max_cost`) and concluded during `graceTurns`. Partial work is preserved, and resume session ID is available.
+- **`interrupted` / `cancelled`**: Preserves worktree branch for manual inspection (`subagent { action: 'diff' }` or `apply`).
+- **`timed_out`**: Budget elapsed. Phase reported (e.g., `execution` vs `queue`).
+
+---
+
+## Codemode Reliability
+
+Codemode runs scripts in a QuickJS sandbox without an execution timeout by default.
+- The `subagent-monitor` extension automatically eliminates the cargo-culted `60000ms` timeout header copied by LLMs from older documentation examples.
+- Scripts run without artificial timeouts unless the user explicitly requests an execution deadline.
+- QuickJS memory safety (256 MB) and output limits remain fully enforced.
+
+---
+
+## Upgrade, Verification, and Rollback Procedures
+
+All reliability preferences are isolated from installed `node_modules`.
+
+### Verification
+Run the verification script:
 ```bash
-cp agent-templates.json ~/.pi/agent/agent-templates.json
+bash ~/pi-config/bin/ensure-subagent-config.sh
 ```
+This ensures:
+1. `~/.pi/subagent.json` matches the 30-minute budget, 5-minute stall probe, and disabled stall kill.
+2. `~/.pi/agent/statusline.json` allows `subagent` and `subagent-monitor`.
+3. `extensions/subagent-monitor.ts` and `extensions/statusline.ts` are active.
+4. Reports the installed version of `@parke.dev/pi-subagent` (last verified: `0.8.0`).
 
-Edit `~/.pi/agent/agent-templates.json`:
+### Upgrading Subagent
+When upgrading `@parke.dev/pi-subagent`:
+1. Update via Pi or npm.
+2. Run `bash ~/pi-config/bin/ensure-subagent-config.sh` to confirm configuration compatibility.
+3. Reload Pi with `/reload`.
+All settings (`~/.pi/subagent.json`) and extensions (`extensions/subagent-monitor.ts`) persist automatically without patching `node_modules`.
 
-```json
-{
-  "planner": {
-    "model": "anthropic--claude-opus-4-5",
-    "thinkingLevel": "high"
-  },
-  "worker": {
-    "model": "anthropic--claude-sonnet-4-5",
-    "thinkingLevel": "medium"
-  },
-  "scout": {
-    "model": "anthropic--claude-haiku-4-5",
-    "thinkingLevel": "minimal"
-  },
-  "reviewer": {
-    "model": "anthropic--claude-sonnet-4-5",
-    "thinkingLevel": "low"
-  }
-}
+### Rollback
+If an upstream update introduces breaking changes:
+```bash
+npm install -C ~/.pi/agent/npm @parke.dev/pi-subagent@0.8.0
+bash ~/pi-config/bin/ensure-subagent-config.sh
 ```
-
-Use whatever models your provider exposes. The model string format is
-`provider--model-id` (same as the `--model` CLI flag). You can also use the
-combined `provider--model-id:thinking-level` shorthand in the `model` field —
-the extension passes it straight through to the CLI.
-
-**Built-in thinking-level defaults** (apply when `thinkingLevel` is absent from
-your template):
-
-| Role     | Default thinking level |
-|----------|------------------------|
-| planner  | `high`                 |
-| worker   | `medium`               |
-| scout    | `minimal`              |
-| reviewer | `low`                  |
-
-The extension always loads these as a fallback — `agent-templates.json` is only
-needed when you want to set (or override) the `model`.
-
----
-
-## Step 3 — Write agent files with `role:`
-
-Agent files live in `~/.pi/agent/agents/`. The minimum required frontmatter is
-`name:`, `description:`, and `role:`. Everything else is optional.
-
-```markdown
----
-name: my-planner
-description: Turns scout findings into a numbered implementation plan
-role: planner
-tools: read, grep, find, ls
----
-
-You are a planning specialist...
-```
-
-You can define as many variants as you like — `my-planner-fast.md`,
-`my-planner-thorough.md` — all wearing the same `role: planner` template.
-
-### Overriding the template
-
-Set `model:` or `thinking_level:` directly in the frontmatter to override:
-
-```markdown
----
-name: my-experimental-planner
-description: Planner variant using max thinking
-role: planner
-thinking_level: max          # overrides the template's "high"
----
-```
-
----
-
-## Step 4 — Reload and verify
-
-In pi, run `/reload` to pick up the extension changes. Then invoke a subagent:
-
-```
-Use the my-planner agent to draft a plan for adding dark mode.
-```
-
-You should see the call header:
-
-```
-subagent my-planner [user] [planner] [high]
-  Draft a plan for adding dark mode.
-```
-
-The `[planner]` label comes from the `role:` field; `[high]` comes from the
-template (or built-in default).
-
-For parallel and chain modes:
-
-```
-subagent parallel (2 tasks) [user]
-  my-scout  [scout] [minimal]  Map out the theme system...
-  my-worker [worker] [medium]  Implement the colour tokens...
-
-subagent chain (2 steps) [user]
-  1. my-scout  [scout] [minimal]  Map out the theme system...
-  2. my-planner [planner] [high]  Turn findings into a plan...
-```
-
----
-
-## Template file reference
-
-`~/.pi/agent/agent-templates.json`
-
-```jsonc
-{
-  // Built-in roles — override any field you need.
-  "planner":  { "model": "...", "thinkingLevel": "high"    },
-  "worker":   { "model": "...", "thinkingLevel": "medium"  },
-  "scout":    { "model": "...", "thinkingLevel": "minimal" },
-  "reviewer": { "model": "...", "thinkingLevel": "low"     },
-
-  // Custom roles — any name works.
-  "architect": { "model": "...", "thinkingLevel": "xhigh" },
-  "fast-fixer": { "model": "...", "thinkingLevel": "off"  }
-}
-```
-
-Valid thinking levels: `off` · `minimal` · `low` · `medium` · `high` · `xhigh` · `max`
-
----
-
-## Agent frontmatter reference
-
-| Field           | Required | Description |
-|-----------------|----------|-------------|
-| `name`          | ✓        | Agent identifier used in subagent calls |
-| `description`   | ✓        | Shown in agent listings |
-| `role`          |          | Template name; resolves model + thinkingLevel |
-| `model`         |          | Explicit model override (beats template) |
-| `thinking_level`|          | Explicit thinking-level override (beats template) |
-| `tools`         |          | Comma-separated tool allowlist |
+Then reload Pi.

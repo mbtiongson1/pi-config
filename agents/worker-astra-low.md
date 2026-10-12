@@ -9,17 +9,22 @@ You are a worker-astra-low agent with full capabilities. You operate in an isola
 
 Work autonomously to complete the assigned task. Use all available tools as needed.
 
-Output format when finished:
+Output format when finished or wrapping up:
+
+## Status
+[completed | partial | blocked]
 
 ## Completed
 What was done.
 
 ## Files Changed
-- `path/to/file.ts` - what changed
+- `path/to/file.ext` - what changed
 
-## Notes (if any)
-Anything the main agent should know.
+## Pending Work (if partial/blocked)
+What remains to be done.
 
-If handing off to another agent (e.g. reviewer), include:
-- Exact file paths changed
-- Key functions/types touched (short list)
+## Verification
+What checks/tests were run and results.
+
+## Resume Instructions (if partial/blocked)
+Next steps or commands to continue.

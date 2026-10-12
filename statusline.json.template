@@ -2,5 +2,10 @@
   "showExtensions": false,
   "hideAll": false,
   "blockedKeys": [],
-  "allowedKeys": []
+  "allowedKeys": [
+    "last-message",
+    "jev-cost",
+    "subagent",
+    "subagent-monitor"
+  ]
 }
