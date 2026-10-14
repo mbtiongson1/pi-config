@@ -33,14 +33,15 @@ const KNOWN_MODELS: Record<string, string> = {
 };
 
 function formatModelDisplay(modelStr?: string): string {
-	if (!modelStr) return "";
-	const base = modelStr.split(":").shift()?.split("/").pop() ?? modelStr;
-	if (KNOWN_MODELS[base]) return KNOWN_MODELS[base];
-	return base
-		.split(/[-_]/)
-		.filter(Boolean)
-		.map((w) => w[0].toUpperCase() + w.slice(1))
-		.join(" ");
+	if (!modelStr || modelStr === "unknown" || modelStr === "") return "unknown";
+	const clean = modelStr.split(":").shift() ?? modelStr;
+	const [providerPart, modelPartRaw] = clean.includes("/") ? clean.split("/", 2) : ["", clean];
+	const modelId = modelPartRaw ?? clean;
+	const friendly = KNOWN_MODELS[modelId] || modelId.split(/[-_]/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
+	if (providerPart) {
+		return `${providerPart}/${modelId} (${friendly})`;
+	}
+	return `${modelId} (${friendly})`;
 }
 
 function formatDuration(ms: number): string {
@@ -109,9 +110,9 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 			const displays = runningList.map((task) => {
 				const elapsed = formatDuration(now - task.startedAt);
 				const parts = [
-					theme.fg("text", task.label),
-					task.model ? theme.fg("dim", formatModelDisplay(task.model)) : "",
-					task.thinking && task.thinking !== "off" ? theme.fg("dim", task.thinking) : "",
+					theme.fg("accent", task.agent || task.label),
+					theme.fg("dim", formatModelDisplay(task.model)),
+					task.thinking && task.thinking !== "off" ? theme.fg("dim", `[${task.thinking}]`) : "",
 					task.state === "running"
 						? theme.fg("accent", "running")
 						: task.state === "stalled"
