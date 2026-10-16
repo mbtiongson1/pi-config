@@ -82,11 +82,11 @@ if (changed || !fs.existsSync(file)) {
 
 # 3. Ensure extensions are deployed
 mkdir -p "$agent_dir/extensions"
-if [[ -f "$repo_root/extensions/subagent-monitor.ts" ]]; then
+if [[ -f "$repo_root/extensions/subagent-monitor.ts" && "$repo_root" != "$agent_dir" ]]; then
   cp "$repo_root/extensions/subagent-monitor.ts" "$agent_dir/extensions/subagent-monitor.ts"
   echo "✓ Deployed extensions/subagent-monitor.ts"
 fi
-if [[ -f "$repo_root/extensions/statusline.ts" ]]; then
+if [[ -f "$repo_root/extensions/statusline.ts" && "$repo_root" != "$agent_dir" ]]; then
   cp "$repo_root/extensions/statusline.ts" "$agent_dir/extensions/statusline.ts"
   echo "✓ Deployed extensions/statusline.ts"
 fi
