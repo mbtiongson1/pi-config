@@ -80,7 +80,7 @@ by diffing agents, extensions, prompts, and bin.
 | `prompts/` | Prompt templates |
 | `themes/` | Dark-mode-first custom themes (`favor-cream`, `favor-dark`, `favor-events`, `favor-finance-green`, `favor-indigo`, `favor-watershed`, `finance-editorial`, `gaia-research`, `gaia-skill-tree`) |
 | `bin/` | Utility scripts |
-| `bin/ensure-quota-line.sh` | Idempotent quota surface verification ensuring compact `quota line` default |
+| `bin/ensure-quota-line.sh` | Idempotent quota surface verification ensuring quota box is never on by default and default is always quota line |
 | `settings.json.template` | Base settings — fill in your provider + models |
 | `skills/pi-cost/` | Mandatory v1.10.0 skill, cost calculator, license/notice, and auto-refreshing Gaia/LiteLLM price catalog |
 | `APPEND_SYSTEM.md` | Global engineering-discipline contract (Pi native system-prompt append) |

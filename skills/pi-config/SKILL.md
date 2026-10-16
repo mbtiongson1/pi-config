@@ -29,8 +29,9 @@ Diff?** If an action was specified, proceed without repeating the question.
    If this command fails, report Update **incomplete**. Do not silently skip
    pricing data or register `pi-cost` under optional packages.
 4. **Mandatory quota line default:** `bash "$repo/bin/ensure-quota-line.sh"`.
-   Ensures Pi Quota defaults to the compact one-line surface (`quota line`)
-   rather than the expanded box, persisting `"quota": { "surface": "line" }`.
+   Ensures Pi Quota box is never on by default and default is always the
+   compact one-line surface (`quota line`), persisting `"quota": { "surface": "line" }`
+   and patching all `quota-panel.ts` instances.
 5. **Mandatory Subagent & Codemode reliability:** `bash "$repo/bin/ensure-subagent-config.sh"`.
    Ensures `~/.pi/subagent.json` (30m execution budget, 5m stall probe, stall kill disabled),
    statusline allowed keys, and `subagent-monitor.ts` extension are persistently configured.
@@ -54,7 +55,7 @@ Diff?** If an action was specified, proceed without repeating the question.
    It safely overlays only the managed `pi-cost` skill. Without it Reinstall
    is **incomplete**.
 5. **Always** run `bash "$repo/bin/ensure-quota-line.sh"` to guarantee the
-   compact quota line default.
+   quota box is never on by default and default is always the compact quota line.
 6. **Always** run `bash "$repo/bin/ensure-subagent-config.sh"` to guarantee
    persistent subagent timeouts, stall policy, and visibility extensions.
 7. **Always** run `bash "$repo/bin/install-append-system.sh"`; Reinstall must

@@ -100,4 +100,14 @@ else
   echo "! @parke.dev/pi-subagent package not found in npm packages"
 fi
 
+# 5. Ensure Antigravity Gemini 4 Argon
+if [[ -x "$script_dir/ensure-antigravity-argon.sh" ]]; then
+  "$script_dir/ensure-antigravity-argon.sh"
+fi
+
+# 6. Ensure Pi Quota line default (box should never be on by default)
+if [[ -x "$script_dir/ensure-quota-line.sh" ]]; then
+  "$script_dir/ensure-quota-line.sh"
+fi
+
 echo "All reliability preferences verified."
