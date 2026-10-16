@@ -187,4 +187,16 @@ Enables OpenAI priority service tier routing directly inside Pi:
 
 ---
 
+### Anthropic API Keys with `pi-background-tasks`
+By default, `npm:pi-background-tasks` enables Claude Code subscription OAuth attribution for Anthropic models. If you use standard Anthropic API keys (`sk-ant-api...` via `ANTHROPIC_API_KEY` or `~/.pi/agent/auth.json`), Pi will reject the non-OAuth credential:
+`Error: Anthropic attribution refuses non-OAuth Anthropic credential; subscription OAuth token is required`
+
+To use standard Anthropic API keys, disable ambient attribution in your shell startup (`~/.bashrc` / `~/.zshrc`):
+```bash
+export PI_BG_FEATURES="process,delegate,fusion,attested"
+```
+This preserves all background task and delegation features while allowing standard Anthropic API keys to work directly. See [`docs/anthropic-api-keys.md`](docs/anthropic-api-keys.md) for full details.
+
+---
+
 For provider/model setup, see [pi.dev docs](https://pi.dev).

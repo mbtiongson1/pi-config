@@ -69,7 +69,11 @@
   {
     "package": "npm:pi-background-tasks",
     "name": "Pi Background Tasks",
-    "description": "Track long-running background shell commands and delegated read-only agents with a dedicated Shift+Down footer dock."
+    "description": "Track long-running background shell commands and delegated read-only agents with a dedicated Shift+Down footer dock.",
+    "postInstallInstructions": [
+      "If using standard Anthropic API keys (non-OAuth), set `export PI_BG_FEATURES=\"process,delegate,fusion,attested\"` in your shell startup file (~/.bashrc) to disable ambient subscription attribution.",
+      "See docs/anthropic-api-keys.md for details."
+    ]
   },
   {
     "package": "npm:@benvargas/pi-openai-fast",
