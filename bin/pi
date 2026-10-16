@@ -51,6 +51,11 @@ if [ -x "$pi_agent_dir/bin/ensure-quota-line.sh" ]; then
   "$pi_agent_dir/bin/ensure-quota-line.sh" >/dev/null 2>&1 || true
 fi
 
+# Disable pi-background-tasks ambient Anthropic attribution for standard API keys
+if [ -z "${PI_BG_FEATURES:-}" ]; then
+  export PI_BG_FEATURES="process,delegate,fusion,attested"
+fi
+
 "$pi_release_bin" "$@"
 status=$?
 
