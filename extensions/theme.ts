@@ -97,6 +97,9 @@ function persistThemeSetting(themeName: string): void {
 		if (fs.existsSync(settingsFile)) {
 			const content = fs.readFileSync(settingsFile, "utf-8");
 			const json = JSON.parse(content);
+			if (json.theme === "random") {
+				return;
+			}
 			if (json.theme !== themeName) {
 				json.theme = themeName;
 				fs.writeFileSync(settingsFile, JSON.stringify(json, null, 2) + "\n", "utf-8");

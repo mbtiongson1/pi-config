@@ -17,5 +17,9 @@
   "reviewer": {
     "model": "anthropic--claude-sonnet-4-5",
     "thinkingLevel": "low"
+  },
+  "advisor": {
+    "model": "openai--gpt-6-astra",
+    "thinkingLevel": "max"
   }
 }

@@ -2,6 +2,16 @@
   "providers": {
     "antigravity": {
       "modelOverrides": {
+        "gemini-4-argon": {
+          "contextWindow": 1048576,
+          "maxTokens": 65536,
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cacheRead": 0.1,
+            "cacheWrite": 0.1875
+          }
+        },
         "gemini-3.8-flash": {
           "contextWindow": 272000,
           "promptCache": { "short": 300, "long": 300 }
@@ -13,6 +23,16 @@
     },
     "google-antigravity": {
       "modelOverrides": {
+        "gemini-4-argon": {
+          "contextWindow": 1048576,
+          "maxTokens": 65536,
+          "cost": {
+            "input": 2,
+            "output": 10,
+            "cacheRead": 0.1,
+            "cacheWrite": 0.1875
+          }
+        },
         "gemini-3.8-flash": {
           "contextWindow": 272000,
           "promptCache": { "short": 300, "long": 300 }
@@ -24,23 +44,36 @@
     },
     "openai-codex": {
       "modelOverrides": {
+        "gpt-5.4": {
+          "contextWindow": 272000
+        },
+        "gpt-5.4-mini": {
+          "contextWindow": 272000
+        },
+        "gpt-5.5": {
+          "contextWindow": 272000
+        },
+        "gpt-5.6-terra": {
+          "contextWindow": 272000,
+          "promptCache": { "short": 300, "long": 1800 }
+        },
         "gpt-6-astra": {
-          "contextWindow": 1000000,
+          "contextWindow": 272000,
           "maxTokens": 128000,
           "promptCache": { "short": 300, "long": 1800 }
         },
         "gpt-6-luna": {
-          "contextWindow": 1000000,
+          "contextWindow": 272000,
           "maxTokens": 128000,
           "promptCache": { "short": 300, "long": 1800 }
         },
         "gpt-6-sol": {
-          "contextWindow": 1000000,
+          "contextWindow": 272000,
           "maxTokens": 128000,
           "promptCache": { "short": 300, "long": 1800 }
         },
         "gpt-6.1-sol": {
-          "contextWindow": 1000000,
+          "contextWindow": 272000,
           "maxTokens": 128000,
           "promptCache": { "short": 300, "long": 1800 }
         }
@@ -48,6 +81,12 @@
     },
     "openai": {
       "modelOverrides": {
+        "gpt-5.4": {
+          "contextWindow": 1050000
+        },
+        "gpt-5.5": {
+          "contextWindow": 1050000
+        },
         "gpt-5.6-luna": {
           "contextWindow": 1000000,
           "maxTokens": 1000000,
@@ -57,15 +96,18 @@
           "promptCache": { "short": 300, "long": 1800 }
         },
         "gpt-5.6-terra": {
+          "contextWindow": 1050000,
           "promptCache": { "short": 300, "long": 1800 }
         },
         "gpt-6-astra": {
+          "contextWindow": 1050000,
           "promptCache": { "short": 300, "long": 1800 }
         },
         "gpt-6-luna": {
           "promptCache": { "short": 300, "long": 1800 }
         },
         "gpt-6-sol": {
+          "contextWindow": 1050000,
           "promptCache": { "short": 300, "long": 1800 }
         },
         "gpt-6.1-sol": {

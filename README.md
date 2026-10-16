@@ -199,4 +199,20 @@ This preserves all background task and delegation features while allowing standa
 
 ---
 
+### Gemini 4 Argon Stream Stall Guard (`/argonguard`)
+Prevents premature `Error: stream stalled: no data for 120000ms` aborts during extended reasoning on Gemini 4 Argon:
+
+- **Features**:
+  - **300s Stream Watchdog**: Dynamically configures upstream `ANTIGRAVITY_STREAM_STALL_TIMEOUT_MS=300000` while maintaining independent 180s header deadline.
+  - **Structured Redacted Diagnostics**: Categorizes failures (`provider_silence`, `network_disconnection`, `process_termination`, `timeout`) with credentials automatically redacted.
+  - **Safe Recovery**: Automatically retries only during pure reasoning prior to tool dispatch; strictly blocks replays if tool calls (`write`, `edit`, `bash`) were present to prevent duplicate side effects.
+  - **Model Invariants**: Preserves exact model (`gemini-4-argon`) and thinking level; keeps subagent turn counts unbounded.
+- **Commands**:
+  - `/argonguard` — Inspect active timeouts and safe recovery status
+  - `/argonguard diag` — Review credential-redacted diagnostics
+  - `/argonguard on|off` — Arm or disarm stall guard
+- **Full Documentation**: See [`docs/gemini-4-argon.md`](docs/gemini-4-argon.md).
+
+---
+
 For provider/model setup, see [pi.dev docs](https://pi.dev).

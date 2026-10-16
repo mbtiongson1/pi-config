@@ -1,9 +1,8 @@
 {
-  "lastChangelogVersion": "0.84.2",
-  "theme": "gaia-skill-tree",
+  "lastChangelogVersion": "1.3.0",
+  "theme": "random",
   "packages": [
     "npm:pi-antigravity",
-    "npm:@yofriadi/pi-antigravity-oauth",
     "git:github.com/J3fp/piQuota",
     "npm:@amaster.ai/pi-image-gen",
     "npm:pi-free",
@@ -13,18 +12,15 @@
     "npm:@parke.dev/pi-subagent",
     "npm:pi-background-tasks"
   ],
-  "defaultTools": [
-    "+codemode"
-  ],
   "defaultProvider": "antigravity",
   "defaultModel": "gemini-3.8-flash",
-  "defaultThinkingLevel": "low",
+  "defaultThinkingLevel": "high",
+  "showCacheMissNotices": true,
   "compaction": {
     "enabled": true,
     "reserveTokens": 16384,
     "keepRecentTokens": 20000
   },
-  "showCacheMissNotices": true,
   "cacheWarming": "idle",
   "modelCacheWarming": {
     "antigravity/gemini-3.8-flash": "force",
@@ -33,48 +29,39 @@
     "default": "idle"
   },
   "pi-image-gen": {
-    "defaultModel": "gpt-image-2"
+    "defaultModel": "gpt-image-2.5"
   },
   "enabledModels": [
     "antigravity/gemini-3.8-flash",
-    "antigravity/gemini-3.7-flash",
-    "antigravity/claude-sonnet-4-6",
-    "antigravity/claude-opus-4-6",
-    "antigravity/gpt-oss-120b",
-    "antigravity/gemini-3.1-pro",
-    "antigravity/gemini-3.6-flash",
-    "antigravity/gemini-3.5-flash",
-    "google-antigravity/gemini-3.5-flash-lite",
-    "openai/gpt-5.6-luna",
-    "openai/gpt-5.6-sol",
-    "openai/gpt-5.6-terra",
-    "openai/gpt-6-astra",
     "openai/gpt-6-luna",
-    "openai/gpt-6-sol",
     "openai/gpt-6.1-sol",
-    "cline/cohere/north-mini-code:free",
-    "cline/google/gemma-4-31b-it:free",
-    "cline/liquid/lfm-2.5-1.2b-instruct:free",
-    "cline/liquid/lfm-2.5-1.2b-thinking:free",
-    "cline/nvidia/nemotron-3-nano-30b-a3b:free",
-    "cline/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-    "cline/nvidia/nemotron-3-super-120b-a12b:free",
-    "cline/nvidia/nemotron-3-ultra-550b-a55b:free",
-    "cline/openai/gpt-oss-120b:free",
-    "cline/openai/gpt-oss-20b:free",
-    "cline/poolside/laguna-m.1:free",
-    "cline/poolside/laguna-xs-2.1:free",
-    "cline/stepfun/step-3.7-flash",
-    "cline/tencent/hy3:free",
-    "cline/nousresearch/hermes-3-llama-3.1-405b:free",
-    "cline/x-ai/grok-4.5",
-    "kilo/tencent/hy3:free",
-    "kilo/stepfun/step-3.7-flash:free"
+    "openai/gpt-6-astra",
+    "antigravity/gemini-3.5-flash-lite",
+    "anthropic/claude-haiku-5-5",
+    "anthropic/claude-sonnet-5-5",
+    "anthropic/claude-opus-5-5",
+    "anthropic/claude-fable-5-1",
+    "antigravity/claude-sonnet-5-5",
+    "antigravity/claude-opus-5-5",
+    "antigravity/gemini-4-argon"
   ],
+  "hideThinkingBlock": false,
+  "steeringMode": "all",
+  "httpIdleTimeoutMs": 0,
+  "markdown": {
+    "mermaid": "streaming"
+  },
+  "quietStartup": true,
+  "collapseChangelog": true,
+  "defaultProjectTrust": "always",
+  "doubleEscapeAction": "none",
   "showHardwareCursor": true,
   "terminal": {
     "showTerminalProgress": true
   },
+  "defaultTools": [
+    "+codemode"
+  ],
   "quota": {
     "surface": "line"
   }
