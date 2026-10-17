@@ -81,6 +81,8 @@ by diffing agents, extensions, prompts, and bin.
 | `themes/` | Dark-mode-first custom themes (`favor-cream`, `favor-dark`, `favor-events`, `favor-finance-green`, `favor-indigo`, `favor-watershed`, `finance-editorial`, `gaia-research`, `gaia-skill-tree`) |
 | `bin/` | Utility scripts |
 | `bin/ensure-quota-line.sh` | Idempotent quota surface verification ensuring quota box is never on by default and default is always quota line |
+| `bin/ensure-antigravity-argon.sh` | Linux/Termux compatibility repair for Gemini 4 Argon model mapping and stall-timeout setup; review its shell-profile and package-source edits before running on other platforms |
+| `docs/gemini-4-argon.md` | End-to-end Antigravity/Argon setup, safe portability notes, diagnostics, and stream-stall guard details |
 | `settings.json.template` | Base settings — fill in your provider + models |
 | `skills/pi-cost/` | Mandatory v1.10.0 skill, cost calculator, license/notice, and auto-refreshing Gaia/LiteLLM price catalog |
 | `APPEND_SYSTEM.md` | Global engineering-discipline contract (Pi native system-prompt append) |
@@ -199,11 +201,13 @@ This preserves all background task and delegation features while allowing standa
 
 ---
 
-### Gemini 4 Argon Stream Stall Guard (`/argonguard`)
-Prevents premature `Error: stream stalled: no data for 120000ms` aborts during extended reasoning on Gemini 4 Argon:
+### Gemini 4 Argon on Antigravity (`/argonguard`)
+The templates enable `npm:pi-antigravity`, include `antigravity/gemini-4-argon`, and define the Argon model metadata. Authentication is per-environment and must be completed locally; never copy `auth.json` or provider tokens between machines. For a new machine, first validate the package, enabled-model entry, model override, and local Antigravity login. If the installed provider lacks Argon, the Linux/Termux compatibility repair is `bash bin/ensure-antigravity-argon.sh`; it can modify shell profiles and installed provider source, and its User-Agent override should not be blindly applied to other operating systems. The stall guard is off by default: explicitly run `/argonguard on` to activate its timeout overrides. See [`docs/gemini-4-argon.md`](docs/gemini-4-argon.md) for the full setup and verification checklist.
+
+The guard prevents premature `Error: stream stalled: no data for 120000ms` aborts during extended reasoning on Gemini 4 Argon:
 
 - **Features**:
-  - **300s Stream Watchdog**: Dynamically configures upstream `ANTIGRAVITY_STREAM_STALL_TIMEOUT_MS=300000` while maintaining independent 180s header deadline.
+  - **Opt-In 300s Stream Watchdog**: When explicitly armed, sets upstream `ANTIGRAVITY_STREAM_STALL_TIMEOUT_MS=300000` while maintaining an independent 180s header deadline; disabled by default.
   - **Structured Redacted Diagnostics**: Categorizes failures (`provider_silence`, `network_disconnection`, `process_termination`, `timeout`) with credentials automatically redacted.
   - **Safe Recovery**: Automatically retries only during pure reasoning prior to tool dispatch; strictly blocks replays if tool calls (`write`, `edit`, `bash`) were present to prevent duplicate side effects.
   - **Model Invariants**: Preserves exact model (`gemini-4-argon`) and thinking level; keeps subagent turn counts unbounded.

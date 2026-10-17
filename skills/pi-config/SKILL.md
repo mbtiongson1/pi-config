@@ -41,6 +41,7 @@ Diff?** If an action was specified, proceed without repeating the question.
    edit `SYSTEM.md` or project `.pi/APPEND_SYSTEM.md` overrides.
 7. Follow the optional package check below for *other* packages. Reload Pi to
    discover updated resources.
+8. **Antigravity Argon portability:** the repo templates include the provider package, enabled model, and model metadata. When the user is setting up Argon in a new environment, consult `docs/gemini-4-argon.md` and verify the local settings/model override/authentication without exposing credentials. Offer `bash "$repo/bin/ensure-antigravity-argon.sh"` only when compatibility repair is needed and the user approves its shell-profile and installed-package source edits. It is tuned for Linux/Termux; do not silently run it on other platforms.
 
 ## Reinstall
 
@@ -61,6 +62,10 @@ Diff?** If an action was specified, proceed without repeating the question.
 7. **Always** run `bash "$repo/bin/install-append-system.sh"`; Reinstall must
    not wipe `<agent-dir>/APPEND_SYSTEM.md` (the installer refreshes only its
    managed block). Then do the optional package check and reload Pi.
+8. **Antigravity Argon portability:** when Argon is requested in a new environment,
+   follow `docs/gemini-4-argon.md`; credentials are environment-specific and must
+   not be copied. Offer the Linux/Termux compatibility repair script only after
+   reviewing its shell-profile and installed-package source changes with the user.
 
 ## Sync / Diff
 
