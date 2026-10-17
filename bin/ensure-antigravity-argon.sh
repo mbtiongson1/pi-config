@@ -8,7 +8,8 @@ agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 
 echo "=== Ensuring Antigravity Gemini 4 Argon Configuration ==="
 
-# 1. Ensure shell profiles have ANTIGRAVITY_USER_AGENT and stream timeouts
+# 1. Ensure shell profiles have only the Antigravity User-Agent; guard timeouts
+# are applied only after the user explicitly runs /argonguard on.
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   if [[ -f "$rc" ]]; then
     if ! grep -q "ANTIGRAVITY_USER_AGENT" "$rc"; then
@@ -16,20 +17,6 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
       echo "✓ Added ANTIGRAVITY_USER_AGENT to $rc"
     else
       echo "✓ ANTIGRAVITY_USER_AGENT already present in $rc"
-    fi
-
-    if ! grep -q "ANTIGRAVITY_STREAM_STALL_TIMEOUT_MS" "$rc"; then
-      echo "export ANTIGRAVITY_STREAM_STALL_TIMEOUT_MS=300000" >> "$rc"
-      echo "✓ Added ANTIGRAVITY_STREAM_STALL_TIMEOUT_MS=300000 to $rc"
-    else
-      echo "✓ ANTIGRAVITY_STREAM_STALL_TIMEOUT_MS already present in $rc"
-    fi
-
-    if ! grep -q "ANTIGRAVITY_STREAM_HEADER_TIMEOUT_MS" "$rc"; then
-      echo "export ANTIGRAVITY_STREAM_HEADER_TIMEOUT_MS=180000" >> "$rc"
-      echo "✓ Added ANTIGRAVITY_STREAM_HEADER_TIMEOUT_MS=180000 to $rc"
-    else
-      echo "✓ ANTIGRAVITY_STREAM_HEADER_TIMEOUT_MS already present in $rc"
     fi
   fi
 done

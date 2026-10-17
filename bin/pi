@@ -56,14 +56,6 @@ if [ -z "${PI_BG_FEATURES:-}" ]; then
   export PI_BG_FEATURES="process,delegate,fusion,attested"
 fi
 
-# Ensure Gemini 4 Argon stream stall timeout defaults (300s mid-stream stall, 180s header deadline)
-if [ -z "${ANTIGRAVITY_STREAM_STALL_TIMEOUT_MS:-}" ]; then
-  export ANTIGRAVITY_STREAM_STALL_TIMEOUT_MS=300000
-fi
-if [ -z "${ANTIGRAVITY_STREAM_HEADER_TIMEOUT_MS:-}" ]; then
-  export ANTIGRAVITY_STREAM_HEADER_TIMEOUT_MS=180000
-fi
-
 "$pi_release_bin" "$@"
 status=$?
 

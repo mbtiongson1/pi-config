@@ -61,7 +61,7 @@ const DEFAULT_HEADER_TIMEOUT_MS = 180_000; // 180 seconds (3 minutes)
 const MAX_DIAGNOSTICS_HISTORY = 20;
 
 export const state = {
-	armed: true,
+	armed: false,
 	stallTimeoutMs: DEFAULT_STALL_TIMEOUT_MS,
 	headerTimeoutMs: DEFAULT_HEADER_TIMEOUT_MS,
 	maxRetries: 1, // Strictly bounded: max 1 safe retry
@@ -266,19 +266,17 @@ function findFailedAssistantMessage(context: { contextMessages?: unknown[]; pend
 export default function argonStallGuard(pi: ExtensionAPI): void {
 	api = pi;
 
-	// Ensure timeouts on extension load
-	applyArgonTimeouts(true);
-
+	// The guard is opt-in: do not change timeout environment variables unless armed.
 	pi.on("session_start", () => {
 		loadSettings();
-		applyArgonTimeouts(true);
+		if (state.armed) applyArgonTimeouts(true);
 	});
 
 	pi.on("before_agent_start", (_event, ctx) => {
 		loadSettings();
 		const currentModel = ctx?.getModel?.();
 		const isArgon = currentModel?.id?.includes("argon") ?? true;
-		applyArgonTimeouts(isArgon);
+		if (state.armed) applyArgonTimeouts(isArgon);
 		state.attempts = 0;
 		state.lastError = "";
 	});
@@ -286,7 +284,7 @@ export default function argonStallGuard(pi: ExtensionAPI): void {
 	pi.on("turn_start", (_event, ctx) => {
 		const currentModel = ctx?.getModel?.();
 		const isArgon = currentModel?.id?.includes("argon") ?? true;
-		applyArgonTimeouts(isArgon);
+		if (state.armed) applyArgonTimeouts(isArgon);
 	});
 
 	pi.on("turn_end", (event) => {

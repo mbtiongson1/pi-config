@@ -30,6 +30,12 @@ def run_node_eval(script: str, extra_env=None):
     return res
 
 class TestArgonStallGuard(unittest.TestCase):
+    def test_guard_is_opt_in_by_default(self):
+        source = ARGON_GUARD_PATH.read_text()
+        self.assertIn("armed: false,", source)
+        self.assertIn("if (state.armed) applyArgonTimeouts(isArgon);", source)
+        self.assertNotIn("// Ensure timeouts on extension load\n\tapplyArgonTimeouts(true);", source)
+
     def test_env_var_and_defaults(self):
         """Verify official stream stall and header timeouts from pi-antigravity."""
         script = f"""
