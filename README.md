@@ -74,7 +74,7 @@ by diffing agents, extensions, prompts, and bin.
 
 | Path | Purpose |
 |------|---------|
-| `agents/` | Custom subagents (planner, reviewer, scout, worker) |
+| `agents/` | Custom subagents (advisor, planner, reviewer, scout, worker) |
 | `extensions/` | Custom pi extensions (including `/statusline` bloat manager and last-message/cache status) |
 | `statusline.json.template` | Default statusline settings (`showExtensions: false` clean default) |
 | `prompts/` | Prompt templates |
@@ -85,6 +85,8 @@ by diffing agents, extensions, prompts, and bin.
 | `docs/gemini-4-argon.md` | End-to-end Antigravity/Argon setup, safe portability notes, diagnostics, and stream-stall guard details |
 | `settings.json.template` | Base settings — fill in your provider + models |
 | `skills/pi-cost/` | Mandatory v1.10.0 skill, cost calculator, license/notice, and auto-refreshing Gaia/LiteLLM price catalog |
+| `skills/astra-advisor/` | Portable one-round decision advisor skill (`SKILL.md`) and native Codex configuration profile (`codex.config.toml`) |
+| `bin/install-astra-advisor.sh` | Standalone installer for Astra Advisor across Pi and Codex |
 | `APPEND_SYSTEM.md` | Global engineering-discipline contract (Pi native system-prompt append) |
 | `bin/install-append-system.sh` | Required idempotent installer for the contract on Update and Reinstall; preserves user text |
 | `bin/install-pi-cost.sh` | Required idempotent, verified install step on Update and Reinstall |
@@ -216,6 +218,130 @@ The guard prevents premature `Error: stream stalled: no data for 120000ms` abort
   - `/argonguard diag` — Review credential-redacted diagnostics
   - `/argonguard on|off` — Arm or disarm stall guard
 - **Full Documentation**: See [`docs/gemini-4-argon.md`](docs/gemini-4-argon.md).
+
+---
+
+### Advisor Roles in Pi (`advisor-astra` & `advisor-argon`)
+Advisors in Pi are specialized one-round decision agents for high-stakes technical and architectural choices:
+
+- **Core Behavioral Contract**:
+  - **Pure Reasoning Only**: Advisors receive a complete brief and return advice in one round. They have zero tools attached—no filesystem edits, bash commands, or web searches.
+  - **Maximum Reasoning Depth**: Explicitly configured to maximum thinking depth (`:max`).
+  - **Strict Brief Prerequisites**: Callers must provide **Situation**, **Constraints**, **Options** (at least 2), and **Goal**. If any prerequisite is missing or vague, the advisor refuses to speculate and returns:
+    `❌ **Insufficient context.** I need the following before I can advise: [list what's missing]`
+  - **Structured Output**: Every evaluation returns four mandatory sections: `## Decision`, `## Reasoning`, `## Risks`, and `## Confidence`.
+- **Configured Advisor Roles**:
+  - `advisor-astra`: Pinned to `openai/gpt-6-astra:max` (or `openai-codex/gpt-6-astra:max`).
+  - `advisor-argon`: Pinned to `antigravity/gemini-4-argon:max`.
+  - *Fable Advisor Note*: In audit discovery, while `anthropic/claude-fable-5` was enabled in model settings and tracked in pricing catalogs, no dedicated `advisor-fable.md` agent file or prompt was authored on disk or committed to repository history.
+  - `agent-templates.json`: Maps the abstract role `"advisor"` to `openai--gpt-6-astra` at `thinkingLevel: "max"`.
+- **How Advisors are Invoked in Pi**:
+  - Via subagent delegation:
+    ```javascript
+    subagent({
+      agent: "advisor-astra",
+      task: "Situation: ... Constraints: ... Options: 1) ... 2) ... Goal: ..."
+    })
+    ```
+  - Via role template:
+    ```javascript
+    subagent({
+      role: "advisor",
+      task: "Situation: ... Constraints: ... Options: 1) ... 2) ... Goal: ..."
+    })
+    ```
+  - Interactively in session:
+    ```bash
+    /agent advisor-astra
+    ```
+
+---
+
+### Astra Advisor for Codex & Pi
+
+Astra Advisor is packaged as a reusable, portable skill and native configuration profile compatible across Pi, OpenAI Codex CLI, and standard AgentSkills harnesses.
+
+#### Installation
+
+Astra Advisor is fully decoupled from personal configurations, private API keys, and custom extensions. Friends or external collaborators can install it standalone:
+
+```bash
+# Clone the repository (or download skills/astra-advisor)
+git clone https://github.com/mbtiongson1/pi-config.git
+cd pi-config
+
+# Standalone install to Codex CLI only:
+bash bin/install-astra-advisor.sh --codex
+
+# Standalone install to Pi only:
+bash bin/install-astra-advisor.sh --pi
+
+# Or install to both:
+bash bin/install-astra-advisor.sh --all
+```
+
+**Manual installation (no scripts required):**
+- **For Codex CLI**:
+  1. Copy `skills/astra-advisor/SKILL.md` to `~/.codex/skills/astra-advisor/SKILL.md` (for in-session skill usage).
+  2. Copy `skills/astra-advisor/codex.config.toml` to `~/.codex/astra-advisor.config.toml` (for native `-p astra-advisor` profile execution).
+- **For Pi**:
+  1. Copy `skills/astra-advisor/SKILL.md` to `~/.pi/agent/skills/astra-advisor/SKILL.md`.
+  2. Copy `agents/advisor-astra.md` to `~/.pi/agent/agents/advisor-astra.md`.
+
+#### Invocations
+
+**In OpenAI Codex CLI:**
+- *Native Agent Profile (Recommended)*:
+  ```bash
+  # Interactive mode with read-only sandbox and high reasoning effort
+  codex -p astra-advisor
+
+  # Headless / automation evaluation
+  codex exec -p astra-advisor "Situation: ... Constraints: ... Options: 1) ... 2) ... Goal: ..."
+
+  # Clean-room evaluation (ephemeral session, no disk history)
+  codex exec -p astra-advisor --ephemeral "Situation: ... Constraints: ... Options: 1) ... 2) ... Goal: ..."
+  ```
+- *As a Skill in an existing session*:
+  ```
+  $ codex
+  > Use $astra-advisor to evaluate the architecture options below...
+  ```
+
+**In Pi:**
+- *As a dedicated subagent*:
+  ```javascript
+  subagent({
+    agent: "advisor-astra",
+    task: "Situation: ... Constraints: ... Options: 1) Migrate to Postgres 2) Stay on SQLite with WAL Goal: High concurrency with zero devops overhead"
+  })
+  ```
+- *As a skill*:
+  ```
+  /skill astra-advisor
+  ```
+
+#### Skill vs. Agent Behavior
+
+Understanding the architectural distinction prevents false assumptions about safety and model guarantees:
+
+| Dimension | In-Context Skill (`SKILL.md`) | Dedicated Agent / Profile (`advisor-astra.md` / `astra-advisor.config.toml`) |
+|:---|:---|:---|
+| **Context Isolation** | Shares the existing conversation context, previous tool outputs, and prompt history. | Executes in a fresh, isolated thread/turn (`--ephemeral` or isolated subagent context) with zero baggage. |
+| **Tool Restrictions** | Soft behavioral instruction: advises the model not to mutate files or run tools. Tools remain accessible to the harness. | Hard architectural enforcement: Pi strips all tools (`tools: none`); Codex enforces `sandbox_mode = "read-only"` and `web_search = false`. |
+| **Model & Thinking** | Inherits whatever model the active host session is running on. Instructs model to warn if thinking is disabled. | Hard pins the frontier model and explicit thinking level (`openai/gpt-6-astra:max` or `model_reasoning_effort = "high"`). |
+| **Execution Flow** | Can be queried iteratively, though instructed to return one-round structured advice. | Hard one-round boundary: brief in → decisive recommendation out → session concludes. |
+
+#### Supported Capabilities and Limitations
+
+- **Capabilities**:
+  - Uncompromising trade-off analysis between 2 or more concrete architectural paths.
+  - Identification of subtle second-order failures, lock-in risks, and operational costs.
+  - Decisive, single-sentence recommendation with explicit confidence ratings (**High** / **Medium** / **Low**).
+- **Limitations & Guardrails**:
+  - **No implementation**: Strictly read-only; will not generate boilerplate or write code.
+  - **No autonomous delegation**: Will never dispatch subagents or escalate model tiers without explicit user authorization.
+  - **No guessing**: Incomplete briefs are rejected immediately with `❌ **Insufficient context.**`.
 
 ---
 
