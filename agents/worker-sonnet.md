@@ -1,5 +1,5 @@
 ---
-model: antigravity/claude-sonnet-5-5:medium
+model: anthropic/claude-sonnet-5-5:medium
 name: worker-sonnet
 description: Heavy-duty worker subagent using Claude Sonnet for complex tasks (Medium)
 role: worker

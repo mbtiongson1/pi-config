@@ -1,5 +1,5 @@
 ---
-model: antigravity/claude-opus-5-5:high
+model: anthropic/claude-opus-5-5:high
 name: planner-opus
 description: Creates implementation plans from context and requirements
 role: planner

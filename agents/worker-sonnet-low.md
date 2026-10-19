@@ -1,5 +1,5 @@
 ---
-model: antigravity/claude-sonnet-5-5:low
+model: anthropic/claude-sonnet-5-5:low
 name: worker-sonnet-low
 description: Worker agent powered by Claude Sonnet Low
 role: worker

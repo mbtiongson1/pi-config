@@ -1,5 +1,5 @@
 ---
-model: antigravity/claude-opus-5-5:low
+model: anthropic/claude-opus-5-5:low
 name: worker-opus-low
 description: Worker agent powered by Claude Opus Low
 role: worker

@@ -1,5 +1,5 @@
 ---
-model: antigravity/claude-sonnet-5-5:medium
+model: anthropic/claude-sonnet-5-5:medium
 name: worker-sonnet-medium
 description: Worker agent powered by Claude Sonnet Medium
 role: worker
