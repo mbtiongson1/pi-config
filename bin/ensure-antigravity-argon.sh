@@ -8,8 +8,7 @@ agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 
 echo "=== Ensuring Antigravity Gemini 4 Argon Configuration ==="
 
-# 1. Ensure shell profiles have only the Antigravity User-Agent; guard timeouts
-# are applied only after the user explicitly runs /argonguard on.
+# 1. Ensure shell profiles have only the Antigravity User-Agent.
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   if [[ -f "$rc" ]]; then
     if ! grep -q "ANTIGRAVITY_USER_AGENT" "$rc"; then
@@ -177,21 +176,5 @@ if (fs.existsSync(subagentFormatPath)) {
   }
 }
 ' "$agent_dir" "$TARGET_UA"
-
-# 5. Deploy argon-stall-guard extension
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_dir="$(cd "$script_dir/.." && pwd)"
-guard_src="$repo_dir/extensions/argon-stall-guard.ts"
-guard_dst="$agent_dir/extensions/argon-stall-guard.ts"
-
-if [[ -f "$guard_src" ]]; then
-  mkdir -p "$agent_dir/extensions"
-  if [[ "$guard_src" -ef "$guard_dst" ]]; then
-    echo "✓ argon-stall-guard.ts already active (same file)"
-  else
-    cp "$guard_src" "$guard_dst"
-    echo "✓ Deployed argon-stall-guard.ts to $guard_dst"
-  fi
-fi
 
 echo "Antigravity Gemini 4 Argon verification complete."
