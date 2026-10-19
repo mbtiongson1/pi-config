@@ -21,5 +21,21 @@
   "advisor": {
     "model": "openai--gpt-6-astra",
     "thinkingLevel": "max"
+  },
+  "minimax": {
+    "model": "openrouter/minimax/minimax-m3.1-flash:free",
+    "thinkingLevel": "medium"
+  },
+  "minimax-high": {
+    "model": "openrouter/minimax/minimax-m3.1-flash:free",
+    "thinkingLevel": "high"
+  },
+  "minimax-xhigh": {
+    "model": "openrouter/minimax/minimax-m3.1-flash:free",
+    "thinkingLevel": "xhigh"
+  },
+  "minimax-max": {
+    "model": "openrouter/minimax/minimax-m3.1-flash:free",
+    "thinkingLevel": "max"
   }
 }
