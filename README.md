@@ -284,6 +284,7 @@ bash bin/install-astra-advisor.sh --all
 - **For Codex CLI**:
   1. Copy `skills/astra-advisor/SKILL.md` to `~/.codex/skills/astra-advisor/SKILL.md` (for in-session skill usage).
   2. Copy `skills/astra-advisor/codex.config.toml` to `~/.codex/astra-advisor.config.toml` (for native `-p astra-advisor` profile execution).
+  3. Copy `bin/astra-advisor-preflight.py` and `bin/run-astra-advisor.sh` to `~/.codex/skills/astra-advisor/preflight.py` and `~/.codex/skills/astra-advisor/run-astra-advisor.sh`, then make the launcher executable.
 - **For Pi**:
   1. Copy `skills/astra-advisor/SKILL.md` to `~/.pi/agent/skills/astra-advisor/SKILL.md`.
   2. Copy `agents/advisor-astra.md` to `~/.pi/agent/agents/advisor-astra.md`.
@@ -293,15 +294,10 @@ bash bin/install-astra-advisor.sh --all
 **In OpenAI Codex CLI:**
 - *Native Agent Profile (Recommended)*:
   ```bash
-  # Interactive mode with read-only sandbox and high reasoning effort
-  codex -p astra-advisor
-
-  # Headless / automation evaluation
-  codex exec -p astra-advisor "Situation: ... Constraints: ... Options: 1) ... 2) ... Goal: ..."
-
-  # Clean-room evaluation (ephemeral session, no disk history)
-  codex exec -p astra-advisor --ephemeral "Situation: ... Constraints: ... Options: 1) ... 2) ... Goal: ..."
+  # Check the installed Codex model catalog, then run one isolated advisor turn.
+  ~/.codex/skills/astra-advisor/run-astra-advisor.sh "Situation: ... Constraints: ... Options: 1) ... 2) ... Goal: ..."
   ```
+  Direct `codex -p astra-advisor` invocations bypass preflight and are unsupported when model freshness must be guaranteed. The launcher uses `codex debug models`, checks the named profile overlay, and updates only its top-level `model` when the newest catalogued Astra supports `max`. Catalog errors, ambiguous Astra identifiers, unsupported `max`, or missing/unwritable profile settings block the advisor process.
 - *As a Skill in an existing session*:
   ```
   $ codex
@@ -329,7 +325,7 @@ Understanding the architectural distinction prevents false assumptions about saf
 |:---|:---|:---|
 | **Context Isolation** | Shares the existing conversation context, previous tool outputs, and prompt history. | Executes in a fresh, isolated thread/turn (`--ephemeral` or isolated subagent context) with zero baggage. |
 | **Tool Restrictions** | Soft behavioral instruction: advises the model not to mutate files or run tools. Tools remain accessible to the harness. | Hard architectural enforcement: Pi strips all tools (`tools: none`); Codex enforces `sandbox_mode = "read-only"` and `web_search = false`. |
-| **Model & Thinking** | Inherits whatever model the active host session is running on. Instructs model to warn if thinking is disabled. | Hard pins the frontier model and explicit thinking level (`openai/gpt-6-astra:max` or `model_reasoning_effort = "high"`). |
+| **Model & Thinking** | Inherits whatever model the active host session is running on. Instructs model to warn if thinking is disabled. | Preflights the installed Codex catalog, then uses the newest max-capable Astra with `model_reasoning_effort = "max"`. |
 | **Execution Flow** | Can be queried iteratively, though instructed to return one-round structured advice. | Hard one-round boundary: brief in → decisive recommendation out → session concludes. |
 
 #### Supported Capabilities and Limitations

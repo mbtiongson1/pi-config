@@ -42,6 +42,10 @@ class TestAstraAdvisor(unittest.TestCase):
         self.assertIn("Read-only and advisory by default", content)
         self.assertIn("Explicit user authorization required", content)
         self.assertIn("Explicit thinking levels", content)
+        self.assertIn("Codex Model Preflight", content)
+        self.assertIn("You never use tools", content)
+        self.assertIn("No autonomous delegation", content)
+        self.assertIn("One round", content)
         self.assertIn("Skill vs. Agent Boundary", content)
 
     def test_codex_profile_toml(self):
@@ -53,9 +57,12 @@ class TestAstraAdvisor(unittest.TestCase):
         self.assertEqual(data.get("sandbox_mode"), "read-only")
         self.assertEqual(data.get("approval_policy"), "on-request")
         self.assertFalse(data.get("web_search"))
-        self.assertIn(data.get("model_reasoning_effort"), ["high", "max"])
+        self.assertEqual(data.get("model_reasoning_effort"), "max")
         self.assertIn("instructions", data)
         self.assertIn("You are advisor-astra", data["instructions"])
+        self.assertIn("Never call tools", data["instructions"])
+        self.assertIn("Never dispatch subagents", data["instructions"])
+        self.assertIn("One round", data["instructions"])
         self.assertIn("## Decision", data["instructions"])
         self.assertIn("## Confidence", data["instructions"])
 
@@ -117,7 +124,18 @@ class TestAstraAdvisor(unittest.TestCase):
 
             # Verify Codex installation
             self.assertTrue((tmp_codex / "skills/astra-advisor/SKILL.md").exists())
+            self.assertTrue((tmp_codex / "skills/astra-advisor/preflight.py").exists())
+            self.assertTrue((tmp_codex / "skills/astra-advisor/run-astra-advisor.sh").exists())
             self.assertTrue((tmp_codex / "astra-advisor.config.toml").exists())
+
+            # Repeated install is idempotent and preserves the user's profile.
+            target_profile = tmp_codex / "astra-advisor.config.toml"
+            customized_profile = target_profile.read_text(encoding="utf-8").replace(
+                'model = "gpt-6-astra"', 'model = "gpt-7-astra"'
+            )
+            target_profile.write_text(customized_profile, encoding="utf-8")
+            subprocess.run(["bash", str(installer), "--codex"], env=env, check=True, capture_output=True, text=True)
+            self.assertEqual(target_profile.read_text(encoding="utf-8"), customized_profile)
 
     def test_no_secrets_or_personal_paths(self):
         files_to_check = [

@@ -56,12 +56,16 @@ if [[ "$target_env" == "codex" || "$target_env" == "all" ]]; then
     codex_skill_target="$codex_home_dir/skills/astra-advisor"
     mkdir -p "$codex_skill_target"
     cp "$skill_source/SKILL.md" "$codex_skill_target/SKILL.md"
-    
-    if [[ -f "$codex_profile_source" ]]; then
+
+    if [[ -f "$codex_profile_source" && ! -e "$codex_home_dir/astra-advisor.config.toml" ]]; then
         mkdir -p "$codex_home_dir"
         cp "$codex_profile_source" "$codex_home_dir/astra-advisor.config.toml"
     fi
+    cp "$repo_root/bin/astra-advisor-preflight.py" "$codex_skill_target/preflight.py"
+    cp "$repo_root/bin/run-astra-advisor.sh" "$codex_skill_target/run-astra-advisor.sh"
+    chmod +x "$codex_skill_target/run-astra-advisor.sh"
     echo "✓ Astra Advisor installed for Codex at $codex_skill_target and $codex_home_dir/astra-advisor.config.toml"
+    echo "  Launch with: $codex_skill_target/run-astra-advisor.sh \"Situation: ... Constraints: ... Options: ... Goal: ...\""
     installed_any=1
 fi
 
