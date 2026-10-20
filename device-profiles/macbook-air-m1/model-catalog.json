@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "device": "macbook-air-m1",
+  "generatedAt": "2026-10-20T20:53:04Z",
+  "source": {
+    "piVersion": "1.3.0",
+    "catalog": "models-store.json"
+  },
+  "providers": {
+    "openrouter": {
+      "auth": {
+        "configured": true,
+        "source": "stored"
+      },
+      "models": [
+        {
+          "id": "minimax/minimax-m3.1-flash:free",
+          "name": "MiniMax: MiniMax M3.1 Flash (free)",
+          "api": "openai-completions",
+          "baseUrl": "https://openrouter.ai/api/v1",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 1000000,
+          "maxTokens": 524288,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsDeveloperRole": false,
+            "thinkingFormat": "openrouter",
+            "supportsStrictMode": true,
+            "sendSessionAffinityHeaders": true
+          }
+        }
+      ]
+    },
+    "vercel-ai-gateway": {
+      "auth": {
+        "configured": false,
+        "source": "none"
+      },
+      "models": []
+    }
+  }
+}
