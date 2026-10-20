@@ -24,6 +24,7 @@ import {
 	evaluateRoute,
 	formatRouteFailure,
 	orderRoutes,
+	recordSpend,
 	resolveBunnyRoute,
 	stickyRoute,
 	supportedThinkingLevels,
@@ -256,6 +257,123 @@ test("a promotional route needs a verification newer than the promotion cutoff",
 	});
 	assert.equal(result.ok, false);
 	assert.ok(result.blockers.some((blocker) => blocker.includes("predates the")));
+});
+
+test("a free verification without a timestamp is stale, never 'verified now'", () => {
+	// A missing verifiedAt must not be read as a fresh verification: that
+	// would turn a stale credit check into an unauthorized paid dispatch.
+	const noTimestamp = state({ vercelVerifiedAt: undefined });
+	noTimestamp.routing.routes["vercel-ai-gateway"].verifiedAt = null;
+	const result = resolveBunnyRoute({
+		now: AFTER,
+		state: noTimestamp,
+		catalog: catalog(),
+		credentials: credentials(),
+	});
+	assert.equal(result.ok, false);
+	assert.ok(result.blockers.some((blocker) => blocker.includes("no timestamp")));
+});
+
+test("a route that can bill requires a configured spend cap", () => {
+	const noCap = state({ vercelVerifiedAt: AFTER });
+	noCap.routing.spend = { capUsd: undefined, usedUsd: 0 };
+	const result = resolveBunnyRoute({
+		now: AFTER,
+		state: noCap,
+		catalog: catalog(),
+		credentials: credentials(),
+	});
+	assert.equal(result.ok, false);
+	assert.ok(result.blockers.some((blocker) => blocker.includes("no spend cap is configured")));
+});
+
+test("the spend cap applies even when the route is free-verified", () => {
+	const verified = state({ vercelVerifiedAt: AFTER });
+	verified.routing.spend = { capUsd: 5, usedUsd: 9 };
+	const result = resolveBunnyRoute({
+		now: AFTER,
+		state: verified,
+		catalog: catalog(),
+		credentials: credentials(),
+	});
+	assert.equal(result.ok, false);
+	assert.ok(result.blockers.some((blocker) => blocker.includes("spend cap reached")));
+});
+
+test("a route that cannot bill does not need a spend cap", () => {
+	const noCap = state();
+	noCap.routing.spend = { capUsd: undefined, usedUsd: 0 };
+	const result = resolveBunnyRoute({
+		now: BEFORE,
+		state: noCap,
+		catalog: catalog(),
+		credentials: credentials(),
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.route.id, "openrouter-free");
+});
+
+test("recorded spend accumulates per route and in total", () => {
+	const spend = recordSpend({ capUsd: 5, usedUsd: 0 }, "vercel-ai-gateway", 1.25);
+	assert.equal(spend.usedUsd, 1.25);
+	assert.equal(spend.routes["vercel-ai-gateway"].usedUsd, 1.25);
+	const second = recordSpend(spend, "vercel-ai-gateway", 0.75);
+	assert.equal(second.usedUsd, 2);
+	assert.equal(second.routes["vercel-ai-gateway"].usedUsd, 2);
+	// A zero or negative amount never moves the counter.
+	const unchanged = recordSpend(second, "vercel-ai-gateway", 0);
+	assert.equal(unchanged.usedUsd, 2);
+});
+
+test("the route order follows each route's own free window", () => {
+	// The OpenRouter window is still open while the Vercel one has closed:
+	// the route that is still free is used.
+	const stillFree = { ...BUNNY_ROUTES[0], freeUntil: "2026-12-01T00:00:00Z" };
+	const closed = { ...BUNNY_ROUTES[1], freeUntil: "2026-10-01T00:00:00Z" };
+	const original = BUNNY_ROUTES.slice();
+	try {
+		BUNNY_ROUTES.length = 0;
+		BUNNY_ROUTES.push(stillFree, closed);
+		const order = orderRoutes("2026-10-15T00:00:00Z").map((route) => route.id);
+		assert.deepEqual(order, ["openrouter-free", "vercel-ai-gateway"]);
+		// Once every window has closed, the successor provider takes over.
+		const later = orderRoutes("2026-12-15T00:00:00Z").map((route) => route.id);
+		assert.deepEqual(later, ["vercel-ai-gateway", "openrouter-free"]);
+	} finally {
+		BUNNY_ROUTES.length = 0;
+		BUNNY_ROUTES.push(...original);
+	}
+});
+
+test("a retry stays on the route that failed", () => {
+	const previous = { provider: "vercel-ai-gateway", model: VERCEL_MODEL.id };
+	const result = resolveBunnyRoute({
+		now: AFTER,
+		state: state({ vercelVerifiedAt: AFTER }),
+		catalog: catalog(),
+		credentials: credentials(),
+		reason: "retry",
+		previous,
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.route.id, "vercel-ai-gateway");
+});
+
+test("a retry keeps the route of the model that failed", () => {
+	// The core keeps whichever sticky model it is given. The extension is
+	// responsible for choosing the failed model over the last successful one
+	// (see the extension source check in the Python suite).
+	const failed = { provider: "vercel-ai-gateway", model: VERCEL_MODEL.id };
+	const result = resolveBunnyRoute({
+		now: AFTER,
+		state: state({ vercelVerifiedAt: AFTER }),
+		catalog: catalog(),
+		credentials: credentials(),
+		reason: "retry",
+		previous: failed,
+	});
+	assert.equal(result.ok, true);
+	assert.equal(result.route.id, "vercel-ai-gateway");
 });
 
 // ---------------------------------------------------------------------------

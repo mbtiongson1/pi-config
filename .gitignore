@@ -7,6 +7,11 @@ trust.json
 .env
 .env.local
 
+# Device enrollment and routing authorization state (local only)
+device-profile.json
+device-profile.json.bak
+device-profile.json.tmp
+
 ## Platform Files
 .DS_Store
 Thumbs.db

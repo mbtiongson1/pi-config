@@ -22,12 +22,12 @@
       "openrouter": {
         "configured": true,
         "source": "stored",
-        "verifiedAt": "2026-10-20T20:53:04Z"
+        "verifiedAt": "2026-10-20T21:12:45Z"
       },
       "vercel-ai-gateway": {
         "configured": false,
         "source": "none",
-        "verifiedAt": "2026-10-20T20:53:04Z"
+        "verifiedAt": "2026-10-20T21:12:45Z"
       }
     }
   },
@@ -67,7 +67,15 @@
         "requiresFreeVerification": false,
         "credential": "OPENROUTER_API_KEY, or /login openrouter",
         "reference": "mbtiongson1/pi-config#9",
-        "note": "OpenRouter `:free` variant \u2014 served at $0, cannot bill."
+        "note": "OpenRouter `:free` variant \u2014 served at $0, cannot bill.",
+        "thinkingLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "scheduleOrder": 1
       },
       {
         "id": "vercel-ai-gateway",
@@ -80,7 +88,15 @@
         "requiresFreeVerification": true,
         "credential": "AI_GATEWAY_API_KEY, or /login vercel-ai-gateway",
         "reference": "mbtiongson1/pi-config#10",
-        "note": "Vercel AI Gateway \u2014 free while MiniMax serves the request; account credit eligibility is personal."
+        "note": "Vercel AI Gateway \u2014 free while MiniMax serves the request; account credit eligibility is personal.",
+        "thinkingLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "scheduleOrder": 2
       }
     ],
     "policy": {
@@ -131,7 +147,7 @@
     }
   },
   "availability": {
-    "checkedAt": "2026-10-20T20:53:04Z",
+    "checkedAt": "2026-10-20T21:12:45Z",
     "models": {
       "openrouter/minimax/minimax-m3.1-flash:free": {
         "status": "available",
@@ -151,5 +167,5 @@
       }
     }
   },
-  "lastVerifiedAt": "2026-10-20T20:53:04Z"
+  "lastVerifiedAt": "2026-10-20T21:12:45Z"
 }

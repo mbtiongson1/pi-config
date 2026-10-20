@@ -245,11 +245,21 @@ class TestDeviceProfiles(unittest.TestCase):
                 self.assertIn(f'provider: "{route["provider"]}"', source)
                 self.assertIn(f'model: "{route["model"]}"', source)
                 self.assertIn(f'freeGuarantee: "{route["freeGuarantee"]}"', source)
+                self.assertIn(f'scheduleOrder: {route["scheduleOrder"]}', source)
+                self.assertEqual(route["thinkingLevels"], FAMILY_LEVELS)
         # The cutoff is a single shared constant in the routing core.
         cutoff = profile["bunny"]["routes"][0]["freeUntil"]
         self.assertIn(f'export const PROMOTION_CUTOFF = "{cutoff}"', source)
         self.assertEqual(profile["bunny"]["identity"], BUNNY_IDENTITY)
         self.assertEqual(profile["bunny"]["thinkingLevels"], FAMILY_LEVELS)
+
+    def test_profile_route_order_matches_the_schedule(self):
+        profile = json.loads((PROFILE_ROOT / "macbook-air-m1" / "profile.json").read_text(encoding="utf-8"))
+        by_id = {route["id"]: route for route in profile["bunny"]["routes"]}
+        self.assertEqual(profile["bunny"]["preferredBeforeCutoff"], "openrouter-free")
+        self.assertEqual(profile["bunny"]["preferredAfterCutoff"], "vercel-ai-gateway")
+        self.assertEqual(by_id["openrouter-free"]["scheduleOrder"], 1)
+        self.assertEqual(by_id["vercel-ai-gateway"]["scheduleOrder"], 2)
 
     def test_profile_subagents_match_the_agent_files(self):
         profile = json.loads((PROFILE_ROOT / "macbook-air-m1" / "profile.json").read_text(encoding="utf-8"))
@@ -275,7 +285,7 @@ class TestDeviceProfiles(unittest.TestCase):
 
     def test_gitignore_keeps_local_state_out_of_the_repository(self):
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
-        for name in ["auth.json", "models.json", "trust.json"]:
+        for name in ["auth.json", "models.json", "trust.json", "device-profile.json"]:
             with self.subTest(file=name):
                 self.assertIn(name, gitignore)
 
@@ -305,6 +315,35 @@ class TestDeviceModelsCli(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         for command in ["enroll", "status", "sync", "diff", "restore", "verify", "disable"]:
             self.assertIn(command, completed.stdout)
+
+
+class TestBunnyExtensionSource(unittest.TestCase):
+    """The Pi extension that registers the virtual model."""
+
+    def setUp(self):
+        self.source = (EXTENSIONS_DIR / "bunny-router.ts").read_text(encoding="utf-8")
+
+    def test_extension_registers_the_virtual_model(self):
+        self.assertIn("pi.registerVirtualModel(", self.source)
+        self.assertIn("BUNNY_VIRTUAL_PROVIDER", self.source)
+        self.assertIn("BUNNY_VIRTUAL_MODEL_ID", self.source)
+
+    def test_retry_uses_the_failed_model_not_the_last_success(self):
+        # Pi's contract: a retry sticks to the model that failed, a
+        # continuation to the model that served the last turn.
+        self.assertIn('request.reason === "retry" && request.failed', self.source)
+        self.assertIn("request.previous", self.source)
+
+    def test_extension_offers_every_level_so_pi_cannot_clamp(self):
+        self.assertIn("thinkingLevels: [...ALL_THINKING_LEVELS]", self.source)
+
+    def test_corrupt_local_state_fails_closed(self):
+        self.assertIn("corrupt", self.source)
+        self.assertIn("could not be parsed", self.source)
+
+    def test_extension_accumulates_local_spend(self):
+        self.assertIn("recordSpend", self.source)
+        self.assertIn("usageCostUsd", self.source)
 
 
 class TestDeviceModelsLifecycle(unittest.TestCase):
@@ -408,6 +447,31 @@ class TestDeviceModelsLifecycle(unittest.TestCase):
         # The device profile's model is added, not substituted.
         added = [m["id"] for m in restored["providers"]["openrouter"]["models"]]
         self.assertIn("minimax/minimax-m3.1-flash:free", added)
+
+    def test_restore_adds_only_the_profile_models(self):
+        (self.agent_dir / "auth.json").write_text("{}", encoding="utf-8")
+        store = {
+            "openrouter": {
+                "models": [
+                    {"id": "minimax/minimax-m3.1-flash:free", "api": "openai-completions"},
+                    {"id": "some/paid-model", "api": "openai-completions"},
+                ]
+            }
+        }
+        (self.agent_dir / "models-store.json").write_text(json.dumps(store), encoding="utf-8")
+        self.run_cli("enroll", "macbook-air-m1")
+        self.run_cli("restore", "macbook-air-m1", "--yes")
+        restored = json.loads((self.agent_dir / "models.json").read_text(encoding="utf-8"))
+        added = [m["id"] for m in restored["providers"]["openrouter"]["models"]]
+        self.assertIn("minimax/minimax-m3.1-flash:free", added)
+        self.assertNotIn("some/paid-model", added)
+
+    def test_sync_redacts_secret_looking_values(self):
+        (self.agent_dir / "auth.json").write_text('{"openrouter": {"key": "sk-or-v1-abcdefghijklmnopqrst"}}', encoding="utf-8")
+        self.run_cli("enroll", "macbook-air-m1")
+        self.run_cli("sync", "macbook-air-m1")
+        text = (self.profile_root / "macbook-air-m1" / "model-catalog.json").read_text(encoding="utf-8")
+        self.assertNotIn("sk-or-v1-abcdefghijklmnopqrst", text)
 
     def test_restore_requires_confirmation(self):
         completed = self.run_cli("restore", "macbook-air-m1", expect=1)

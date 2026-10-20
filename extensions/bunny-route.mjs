@@ -70,6 +70,8 @@ export const BUNNY_ROUTES = [
 		// Verified against the published Pi model catalog: the OpenRouter entry
 		// maps off/minimal to null, so those levels are not supported.
 		thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
+		// Position in the published route sequence.
+		scheduleOrder: 1,
 	},
 	{
 		id: "vercel-ai-gateway",
@@ -86,19 +88,47 @@ export const BUNNY_ROUTES = [
 		// The published Vercel entry declares no thinking-level map. MiniMax
 		// requires a reasoning budget, so only the family levels are enabled.
 		thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
+		scheduleOrder: 2,
 	},
 ];
 
 /** Route lookup by id. */
 export const BUNNY_ROUTE_BY_ID = Object.fromEntries(BUNNY_ROUTES.map((route) => [route.id, route]));
 
-/** Normalize a date-ish value to epoch milliseconds. */
+/**
+ * The published route sequence.
+ *
+ * Each route carries its own `freeUntil`, because the promotions do not
+ * necessarily end at the same moment. The sequence itself is fixed: a route
+ * that is still inside its published free window is used first, and when no
+ * route is free any more the successor provider in the sequence takes over.
+ */
+export const BUNNY_SCHEDULE = [...BUNNY_ROUTES].sort((left, right) => left.scheduleOrder - right.scheduleOrder);
+
+/**
+ * Normalize a date-ish value to epoch milliseconds.
+ * A missing or unparseable value falls back to "now" — use it only for
+ * evaluation time, never for a recorded verification timestamp.
+ */
 export function toEpochMs(value) {
 	if (value === undefined || value === null) return Date.now();
 	if (value instanceof Date) return value.getTime();
 	if (typeof value === "number") return value;
 	const parsed = Date.parse(String(value));
 	return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
+/**
+ * Parse a recorded timestamp. Returns undefined when the value is missing or
+ * unparseable, so a missing verification date can never be read as
+ * "verified just now".
+ */
+export function parseTimestamp(value) {
+	if (value === undefined || value === null || value === "") return undefined;
+	if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.getTime();
+	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+	const parsed = Date.parse(String(value));
+	return Number.isNaN(parsed) ? undefined : parsed;
 }
 
 /** Format an epoch value as an ISO-8601 UTC timestamp. */
@@ -109,17 +139,21 @@ export function toIso(value) {
 /**
  * Ordered candidate list for a point in time.
  *
- * Before the cutoff OpenRouter free is scheduled; from the cutoff Vercel AI
- * Gateway is scheduled. The second entry is only used when the operator
- * explicitly allows a verified free fallback, so an outage or a missing
- * credential produces an actionable error instead of a silent switch.
+ * The route that is still inside its published free window comes first. When
+ * no route is free any more, the successor provider in the published sequence
+ * takes over. A caller may pin an explicit route id.
  */
 export function orderRoutes(now, preferredRouteId) {
 	if (preferredRouteId && BUNNY_ROUTE_BY_ID[preferredRouteId]) {
-		return [BUNNY_ROUTE_BY_ID[preferredRouteId], ...BUNNY_ROUTES.filter((route) => route.id !== preferredRouteId)];
+		return [
+			BUNNY_ROUTE_BY_ID[preferredRouteId],
+			...BUNNY_SCHEDULE.filter((route) => route.id !== preferredRouteId),
+		];
 	}
-	const beforeCutoff = toEpochMs(now) < Date.parse(PROMOTION_CUTOFF);
-	return beforeCutoff ? [...BUNNY_ROUTES] : [...BUNNY_ROUTES].reverse();
+	const timestamp = toEpochMs(now);
+	const stillFree = BUNNY_SCHEDULE.find((route) => timestamp < Date.parse(route.freeUntil));
+	const scheduled = stillFree ?? BUNNY_SCHEDULE[BUNNY_SCHEDULE.length - 1];
+	return [scheduled, ...BUNNY_SCHEDULE.filter((route) => route.id !== scheduled.id)];
 }
 
 /** The route that is scheduled for a point in time. */
@@ -177,22 +211,27 @@ export function checkThinkingLevel(model, level, route) {
 }
 
 /**
- * Spend guard for explicitly authorized paid routes.
- * `capUsd` and `usedUsd` live in local (never committed) state.
+ * Spend guard for a route that can bill.
+ *
+ * A route may bill when it is not guaranteed free, or when paid use was
+ * explicitly authorized. The cap must be configured and must not be reached;
+ * a missing cap is a blocker, not an unlimited allowance.
  */
 function checkSpendCap(state, routeId) {
 	const spend = state?.routing?.spend;
-	if (!spend || typeof spend !== "object") return { ok: true };
-	const cap = Number(spend.capUsd);
-	const used = Number(spend.usedUsd ?? 0);
-	if (!Number.isFinite(cap)) return { ok: true };
-	const routeSpend = spend.routes?.[routeId];
-	const routeUsed = Number(routeSpend?.usedUsd ?? 0);
-	const totalUsed = Number.isFinite(used) ? used : 0;
+	const cap = spend ? Number(spend.capUsd) : NaN;
+	if (!Number.isFinite(cap) || cap < 0) {
+		return {
+			ok: false,
+			message: `route "${routeId}" can bill, but no spend cap is configured. Set routing.spend.capUsd in the local device state before using it.`,
+		};
+	}
+	const totalUsed = Number(spend?.usedUsd ?? 0);
+	const routeUsed = Number(spend?.routes?.[routeId]?.usedUsd ?? 0);
 	if (routeUsed >= cap || totalUsed >= cap) {
 		return {
 			ok: false,
-			message: `Bunny spend cap reached for route "${routeId}" (cap $${cap}). Increase the cap explicitly or pick a free route.`,
+			message: `Bunny spend cap reached for route "${routeId}" (cap $${cap}, used $${Math.max(routeUsed, totalUsed)}). Raise the cap explicitly or use a free route.`,
 		};
 	}
 	return { ok: true };
@@ -234,26 +273,32 @@ export function evaluateRoute(route, options) {
 		};
 	}
 
-	if (!freeVerified && paidAuthorized) {
+	// A route can bill unless it is guaranteed free. Guard those with the
+	// configured spend cap, whatever the authorization flags say.
+	const mayBill = route.freeGuarantee !== "no-charge" || paidAuthorized;
+	if (mayBill) {
 		const spend = checkSpendCap(state, route.id);
 		if (!spend.ok) return { ok: false, blocker: spend.message };
 	}
 
 	// A promotional route that is no longer inside its published free window
 	// needs a verification dated after the window, or explicit paid use.
+	// A missing or unparseable verification date counts as stale: it can
+	// never be read as "verified just now".
 	if (route.freeGuarantee === "promotional" && !inFreeWindow && freeVerified && !paidAuthorized) {
-		const verifiedAt = toEpochMs(local.verifiedAt);
+		const verifiedAt = parseTimestamp(local.verifiedAt);
+		if (verifiedAt === undefined) {
+			return {
+				ok: false,
+				blocker: `route "${route.id}": the free-credit verification has no timestamp. Re-verify credit eligibility, or authorize paid use.`,
+			};
+		}
 		if (verifiedAt < Date.parse(route.freeUntil)) {
 			return {
 				ok: false,
 				blocker: `route "${route.id}": the free-credit verification predates the ${route.freeUntil} promotion cutoff. Re-verify credit eligibility or authorize paid use.`,
 			};
 		}
-	}
-
-	if (route.freeGuarantee === "no-charge" && !freeVerified && paidAuthorized === false) {
-		// The OpenRouter `:free` variant cannot bill, so it stays usable for as
-		// long as the catalog lists it.
 	}
 
 	return {
@@ -373,6 +418,23 @@ export function stickyRoute(reason, previous) {
 	if (reason !== "continuation" && reason !== "retry") return undefined;
 	if (!previous?.provider || !previous?.model) return undefined;
 	return BUNNY_ROUTES.find((route) => route.provider === previous.provider && route.model === previous.model);
+}
+
+/**
+ * Accumulate a route's spend in the local state.
+ * Returns the updated spend object; the caller persists it.
+ */
+export function recordSpend(spend, routeId, costUsd) {
+	const amount = Number(costUsd);
+	if (!Number.isFinite(amount) || amount <= 0) return spend;
+	const next = { ...(spend ?? {}) };
+	next.usedUsd = Number(next.usedUsd ?? 0) + amount;
+	next.routes = { ...(next.routes ?? {}) };
+	next.routes[routeId] = {
+		...(next.routes[routeId] ?? {}),
+		usedUsd: Number(next.routes[routeId]?.usedUsd ?? 0) + amount,
+	};
+	return next;
 }
 
 /**

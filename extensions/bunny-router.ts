@@ -12,6 +12,8 @@
  *     in the local catalog, and the local device state allows the route.
  *   - No paid route is used without explicit local authorization, and there is
  *     no automatic purchase, top-up, or paid fallback.
+ *   - A route that can bill is guarded by a configured spend cap, and the spend
+ *     is accumulated locally from the reported usage.
  *   - Continuation and retry requests stay on the provider that already served
  *     the turn, so a route change never interrupts an in-flight job.
  *
@@ -32,21 +34,54 @@ import {
 	BUNNY_VIRTUAL_PROVIDER,
 	checkThinkingLevel,
 	formatRouteFailure,
+	recordSpend,
 	resolveBunnyRoute,
 	supportedThinkingLevels,
 } from "./bunny-route.mjs";
 
 const STATE_FILE = "device-profile.json";
 
-/** Read the local device state. Missing or malformed state is not fatal. */
-function readDeviceState(): Record<string, unknown> | null {
+type DeviceState = Record<string, unknown>;
+
+/** Local state, plus whether the file exists and parsed cleanly. */
+interface StateRead {
+	state: DeviceState | null;
+	corrupt: boolean;
+}
+
+/**
+ * Read the local device state.
+ *
+ * A missing file means "not enrolled" and keeps the published schedule. A
+ * file that exists but cannot be parsed is reported as corrupt so the router
+ * fails closed instead of silently re-enabling itself.
+ */
+function readDeviceState(): StateRead {
 	try {
 		const file = path.join(getAgentDir(), STATE_FILE);
-		if (!fs.existsSync(file)) return null;
+		if (!fs.existsSync(file)) return { state: null, corrupt: false };
 		const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
-		return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+		if (!parsed || typeof parsed !== "object") return { state: null, corrupt: true };
+		return { state: parsed as DeviceState, corrupt: false };
 	} catch {
-		return null;
+		return { state: null, corrupt: true };
+	}
+}
+
+/** Persist the local state atomically. */
+function writeDeviceState(state: DeviceState): void {
+	const file = path.join(getAgentDir(), STATE_FILE);
+	const tmp = `${file}.tmp`;
+	try {
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf-8", mode: 0o600 });
+		fs.renameSync(tmp, file);
+	} catch {
+		try {
+			fs.rmSync(tmp, { force: true });
+		} catch {
+			/* best effort */
+		}
 	}
 }
 
@@ -79,6 +114,20 @@ function buildCredentials(ctx: ExtensionContext): Record<string, { configured: b
 	return credentials;
 }
 
+/** Cost of one response, in USD, from the physical model's price list. */
+function usageCostUsd(model: any, usage: any): number {
+	if (!model || !usage) return 0;
+	const cost = model.cost ?? {};
+	const perMillion = (tokens: unknown, rate: unknown) =>
+		(Number(tokens ?? 0) / 1_000_000) * Number(rate ?? 0);
+	return (
+		perMillion(usage.input, cost.input) +
+		perMillion(usage.output, cost.output) +
+		perMillion(usage.cacheRead, cost.cacheRead) +
+		perMillion(usage.cacheWrite, cost.cacheWrite)
+	);
+}
+
 export default function bunnyRouterExtension(pi: ExtensionAPI) {
 	pi.registerVirtualModel({
 		provider: BUNNY_VIRTUAL_PROVIDER,
@@ -91,22 +140,32 @@ export default function bunnyRouterExtension(pi: ExtensionAPI) {
 		maxTokens: 524_288,
 		input: ["text"],
 		route(request, ctx) {
-			const state = readDeviceState();
+			const { state, corrupt } = readDeviceState();
+			if (corrupt) {
+				throw new Error(
+					`Bunny routing is disabled because ${STATE_FILE} could not be parsed. Repair or remove it, then re-enable with: bash bin/device-models.sh enroll <device-id>.`,
+				);
+			}
 			const catalog = buildCatalog(ctx);
 			const credentials = buildCredentials(ctx);
 
-			// A continuation or retry stays on the provider that already served
-			// the turn, so a route change never interrupts an in-flight job. A
-			// new dispatch re-evaluates the published schedule.
+			// A continuation stays on the provider that already served the turn.
+			// A retry stays on the model that just failed, so a provider error
+			// does not silently move the job to another provider.
+			const sticky =
+				request.reason === "retry" && request.failed
+					? { provider: request.failed.model.provider, model: request.failed.model.id }
+					: request.previous
+						? { provider: request.previous.model.provider, model: request.previous.model.id }
+						: undefined;
+
 			const resolved = resolveBunnyRoute({
 				now: new Date(),
 				state,
 				catalog,
 				credentials,
 				reason: request.reason,
-				previous: request.previous
-					? { provider: request.previous.model.provider, model: request.previous.model.id }
-					: undefined,
+				previous: sticky,
 			});
 			if (!resolved.ok) {
 				throw new Error(formatRouteFailure(resolved));
@@ -115,17 +174,50 @@ export default function bunnyRouterExtension(pi: ExtensionAPI) {
 		},
 	});
 
+	// Accumulate the local spend of a billable route so the configured cap is
+	// a real limit rather than a number that never moves.
+	pi.on("message_end", async (event, ctx) => {
+		const message: any = event.message;
+		if (!message || message.role !== "assistant" || message.stopReason === "error") return;
+		const route = BUNNY_ROUTES.find(
+			(candidate) => candidate.provider === message.provider && candidate.model === message.model,
+		);
+		if (!route) return;
+		const { state } = readDeviceState();
+		if (!state) return;
+		const routeState = (state as any)?.routing?.routes?.[route.id] ?? {};
+		const mayBill = route.freeGuarantee !== "no-charge" || routeState.paidAuthorized === true;
+		if (!mayBill) return;
+		let model: any;
+		try {
+			model = ctx.modelRegistry.find(message.provider, message.model);
+		} catch {
+			return;
+		}
+		const costUsd = usageCostUsd(model, message.usage);
+		if (costUsd <= 0) return;
+		const routing = { ...((state as any).routing ?? {}) };
+		routing.spend = recordSpend(routing.spend, route.id, costUsd);
+		writeDeviceState({ ...state, routing, updatedAt: new Date().toISOString() });
+	});
+
 	pi.registerCommand("bunny", {
 		description: "Show the resolved Bunny provider route and its authorization state",
 		handler: async (_args, ctx) => {
-			const state = readDeviceState();
+			const { state, corrupt } = readDeviceState();
 			const catalog = buildCatalog(ctx as unknown as ExtensionContext);
 			const credentials = buildCredentials(ctx as unknown as ExtensionContext);
 			const resolved = resolveBunnyRoute({ now: new Date(), state, catalog, credentials });
 			const lines: string[] = [];
 			lines.push(`Bunny identity: ${BUNNY_MODEL_REFERENCE}`);
 			lines.push(`Thinking levels: ${BUNNY_THINKING_LEVELS.join(", ")}`);
-			lines.push(`Device state: ${state ? `enrolled (${String(state.device ?? "unknown")})` : "not enrolled"}`);
+			lines.push(
+				corrupt
+					? `Device state: ${STATE_FILE} could not be parsed — routing is disabled`
+					: state
+						? `Device state: enrolled (${String(state.device ?? "unknown")})`
+						: "Device state: not enrolled",
+			);
 			if (resolved.ok) {
 				const route = resolved.route!;
 				lines.push(

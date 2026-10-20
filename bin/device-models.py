@@ -31,6 +31,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -74,30 +75,82 @@ SAFE_MODEL_FIELDS = [
     "compat",
 ]
 
-# Keys that must never appear in a committed profile.
+# Hosts whose endpoints are public and safe to record. A private or
+# tenant-scoped endpoint is never written to a committed profile.
+PUBLIC_MODEL_HOSTS = {"openrouter.ai", "ai-gateway.vercel.sh"}
+
+# Keys that must never appear in a committed profile, compared without case
+# or separator differences ("apiKey", "api_key", and "API-KEY" all match).
+# "credential" is not listed: the route objects carry an authentication
+# *hint* (an environment variable name) under that name, and the value scan
+# below is what stops real key material.
 FORBIDDEN_KEYS = {
     "key",
-    "apiKey",
-    "api_key",
+    "apikey",
     "token",
-    "accessToken",
-    "refreshToken",
+    "accesstoken",
+    "refreshtoken",
+    "authtoken",
+    "apitoken",
     "secret",
     "password",
+    "passphrase",
+    "privatekey",
     "authorization",
-    "accountId",
-    "account_id",
+    "accountid",
     "balance",
-    "creditBalance",
+    "creditbalance",
     "hostname",
-    "hostName",
-    "userName",
     "username",
+    "userid",
+    "orgid",
+    "tenantid",
     "home",
-    "homeDir",
-    "machineId",
-    "serialNumber",
+    "homedir",
+    "machineid",
+    "serialnumber",
+    "email",
+    "cookie",
+    "sessionid",
 }
+
+# Value patterns that look like credential material. A free-text field that
+# matches one of them is redacted before it is written.
+SECRET_VALUE_PATTERNS = [
+    re.compile(r"\bsk-[A-Za-z0-9_\-]{12,}", re.IGNORECASE),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,}"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"\bAKIA[0-9A-Z]{12,}"),
+    re.compile(r"\bAIza[0-9A-Za-z_\-]{20,}"),
+    re.compile(r"\bvck_[A-Za-z0-9_\-]{12,}"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{12,}", re.IGNORECASE),
+    re.compile(r"\b[0-9a-f]{40,}\b", re.IGNORECASE),
+]
+
+# A long opaque token with no separator — the shape of a pasted API key.
+OPAQUE_TOKEN_PATTERN = re.compile(r"\b(?=[A-Za-z0-9_\-]*[A-Za-z])(?=[A-Za-z0-9_\-]*\d)[A-Za-z0-9_\-]{32,}\b")
+
+# Free-text fields that are scanned for credential material.
+FREE_TEXT_FIELDS = {"credential", "note", "reference", "alias", "notes", "name", "baseUrl", "id"}
+
+# Free-text fields where a long opaque token is also treated as a secret.
+STRICT_FREE_TEXT_FIELDS = {"credential", "note", "reference", "alias", "notes", "name"}
+
+
+def normalize_key(key: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(key).lower())
+
+
+def is_forbidden_key(key: str) -> bool:
+    return normalize_key(key) in FORBIDDEN_KEYS
+
+
+def looks_like_secret(value: str, key: str = "") -> bool:
+    if any(pattern.search(value) for pattern in SECRET_VALUE_PATTERNS):
+        return True
+    if key in STRICT_FREE_TEXT_FIELDS and OPAQUE_TOKEN_PATTERN.search(value):
+        return True
+    return False
 
 
 def agent_dir() -> Path:
@@ -110,6 +163,16 @@ def local_state_path() -> Path:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def abbreviate_home(path: Path) -> str:
+    """Show "~" instead of the home path, so output is safe to paste."""
+    try:
+        home = str(Path.home())
+    except (OSError, RuntimeError):
+        return str(path)
+    text = str(path)
+    return f"~{text[len(home):]}" if home and text.startswith(home) else text
 
 
 def load_json(path: Path) -> Optional[Any]:
@@ -188,18 +251,30 @@ def credential_status(providers: Iterable[str]) -> Dict[str, Dict[str, Any]]:
     return status
 
 
-def sanitize(value: Any) -> Any:
-    """Strip any key that could carry a secret or machine identifier."""
+def sanitize(value: Any, key: str = "") -> Any:
+    """Strip any key or value that could carry a secret or machine identifier."""
     if isinstance(value, dict):
         cleaned: Dict[str, Any] = {}
-        for key, item in value.items():
-            if key in FORBIDDEN_KEYS:
+        for item_key, item in value.items():
+            if is_forbidden_key(item_key):
                 continue
-            cleaned[key] = sanitize(item)
+            cleaned[item_key] = sanitize(item, item_key)
         return cleaned
     if isinstance(value, list):
-        return [sanitize(item) for item in value]
+        return [sanitize(item, key) for item in value]
+    if isinstance(value, str):
+        if key in FREE_TEXT_FIELDS and looks_like_secret(value, key):
+            return "[redacted]"
+        return value
     return value
+
+
+def safe_base_url(url: Any) -> Any:
+    """Keep a public endpoint; drop a private or tenant-scoped one."""
+    if not isinstance(url, str) or not url:
+        return url
+    host = url.split("//", 1)[-1].split("/", 1)[0].split(":")[0].lower()
+    return url if host in PUBLIC_MODEL_HOSTS else "[private endpoint omitted]"
 
 
 def profile_dir(device_id: str) -> Path:
@@ -310,7 +385,7 @@ def cmd_status(_args: argparse.Namespace) -> int:
     state = load_local_state()
     catalog = local_catalog()
     print("Pi device model status")
-    print(f"  agent dir        : {agent_dir()}")
+    print(f"  agent dir        : {abbreviate_home(agent_dir())}")
     print(f"  pi version       : {pi_version() or 'unknown'}")
     print(f"  platform         : {platform.system()} {platform.machine()}")
     if not state:
@@ -352,6 +427,12 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     if existing and existing.get("device") == device_id and not args.force:
         print(f"Already enrolled as {device_id}. Use --force to re-enroll.")
         return 0
+    if existing and existing.get("device") != device_id:
+        print(
+            f"Warning: this machine is enrolled as {existing.get('device')!r}. "
+            f"Enrolling as {device_id!r} replaces that local state.",
+            file=sys.stderr,
+        )
 
     routes = profile.get("bunny", {}).get("routes", [])
     credentials = credential_status([route.get("provider", "") for route in routes])
@@ -359,7 +440,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     for route in routes:
         route_id = route.get("id", "")
         provider = route.get("provider", "")
-        previous = (existing or {}).get("routing", {}).get("routes", {}).get(route_id, {})
+        previous = {} if args.force else (existing or {}).get("routing", {}).get("routes", {}).get(route_id, {})
         route_state[route_id] = {
             "available": bool(credentials.get(provider, {}).get("configured", False)),
             "freeVerified": bool(previous.get("freeVerified", False)),
@@ -377,7 +458,7 @@ def cmd_enroll(args: argparse.Namespace) -> int:
         "version": 1,
         "device": device_id,
         "enabled": True,
-        "enrolledAt": (existing or {}).get("enrolledAt", now_iso()),
+        "enrolledAt": now_iso() if args.force or not existing else existing.get("enrolledAt", now_iso()),
         "updatedAt": now_iso(),
         "routing": {
             "enabled": True,
@@ -410,7 +491,7 @@ def cmd_disable(_args: argparse.Namespace) -> int:
         print("Not enrolled; nothing to disable.")
         return 0
     state["enabled"] = False
-    state["routing"]["enabled"] = False
+    state.setdefault("routing", {})["enabled"] = False
     state["updatedAt"] = now_iso()
     atomic_write_json(local_state_path(), state)
     print(f"Disabled Bunny routing for {state.get('device')}.")
@@ -449,7 +530,14 @@ def build_snapshot(device_id: str, providers: List[str], profile: Optional[Dict[
     }
     for provider in providers:
         wanted = tracked.get(provider, [])
-        models = [m for m in catalog.get(provider, []) if m.get("id") in wanted]
+        models = []
+        for model in catalog.get(provider, []):
+            if model.get("id") not in wanted:
+                continue
+            entry = {key: model[key] for key in SAFE_MODEL_FIELDS if key in model}
+            if "baseUrl" in entry:
+                entry["baseUrl"] = safe_base_url(entry["baseUrl"])
+            models.append(entry)
         entry = {
             "auth": {
                 "configured": bool(credentials.get(provider, {}).get("configured", False)),
@@ -508,11 +596,15 @@ def refresh_profile_metadata(device_id: str, providers: List[str]) -> Dict[str, 
     enabled_models: List[str] = []
     availability: Dict[str, Any] = {}
     levels = set(BUNNY_THINKING_LEVELS)
-    for route in profile.get("bunny", {}).get("routes", []):
+    routes = profile.get("bunny", {}).get("routes", [])
+    for route in routes:
         provider = route.get("provider", "")
         model_id = route.get("model", "")
         if provider and model_id:
             enabled_models.append(f"{provider}/{model_id}")
+        # Mirror the route's verified thinking levels so the profile can be
+        # compared against the routing core field by field.
+        route["thinkingLevels"] = list(route.get("thinkingLevels") or BUNNY_THINKING_LEVELS)
         model = next((m for m in catalog.get(provider, []) if m.get("id") == model_id), None)
         if model is None:
             availability[f"{provider}/{model_id}"] = {
@@ -532,6 +624,10 @@ def refresh_profile_metadata(device_id: str, providers: List[str]) -> Dict[str, 
             "contextWindow": model.get("contextWindow"),
             "maxTokens": model.get("maxTokens"),
         }
+    # Keep any model the operator added by hand.
+    for entry in profile.get("models", {}).get("enabled", []):
+        if entry not in enabled_models:
+            enabled_models.append(entry)
     profile["models"] = {
         "enabled": enabled_models,
         "supportedThinkingLevels": list(BUNNY_THINKING_LEVELS),
@@ -608,8 +704,12 @@ def cmd_restore(args: argparse.Namespace) -> int:
         return 2
     providers = existing.setdefault("providers", {})
     catalog = local_catalog()
+    tracked = tracked_model_ids(profile)
     for provider in profile.get("providers", {}).get("available", []):
-        models = catalog.get(provider, [])
+        wanted = tracked.get(provider, [])
+        if not wanted:
+            continue
+        models = [m for m in catalog.get(provider, []) if m.get("id") in wanted]
         if not models:
             continue
         entry = providers.setdefault(provider, {})
@@ -633,7 +733,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     providers = list(profile.get("providers", {}).get("available", []))
     catalog = local_catalog()
     credentials = credential_status(providers)
-    routes = state.get("routing", {}).get("routes", {})
+    routes = state.setdefault("routing", {}).setdefault("routes", {})
     for route in profile.get("bunny", {}).get("routes", []):
         route_id = route.get("id", "")
         provider = route.get("provider", "")

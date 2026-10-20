@@ -66,9 +66,10 @@ Sources:
   - `vercel-ai-gateway` → `minimax/minimax-m3.1-flash`, `anthropic-messages`,
     base `https://ai-gateway.vercel.sh`, `compat.allowEmptySignature: true`.
 
-The two promotions are tracked separately, so they can end at different times.
-The OpenRouter `:free` variant is served at $0 by construction; the Vercel
-promotion is account-specific and may bill after its cutoff.
+The two promotions are tracked separately — each route carries its own
+`freeUntil` — so they can end at different times. The OpenRouter `:free`
+variant is served at $0 by construction; the Vercel promotion is
+account-specific and may bill after its cutoff.
 
 ---
 
@@ -150,10 +151,13 @@ bash bin/device-models.sh disable
   `device-profiles/<device>/model-catalog.json` — device alias, provider and
   model identifiers, routing policy, availability status, verification
   timestamps. No secrets, no account identifiers, no balances, no hostname,
-  username, home path, or hardware id.
+  username, home path, or hardware id. The writer strips secret-shaped keys,
+  redacts secret-shaped values, and records only public endpoint hosts.
 - Local only: `<agent-dir>/device-profile.json` — enrollment flag and the
-  non-secret authorization flags (`freeVerified`, `paidAuthorized`, spend
-  counters). Never synced into the repository.
+  non-secret authorization flags (`freeVerified`, `verifiedAt`,
+  `paidAuthorized`, spend counters). Never synced into the repository. A file
+  that exists but cannot be parsed disables routing instead of silently
+  re-enabling it.
 
 Enrollment never runs during an Update, a Reinstall, or a Pi package install.
 A fresh installation on another machine does not inherit the MacBook's routing
