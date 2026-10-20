@@ -42,6 +42,7 @@ Diff?** If an action was specified, proceed without repeating the question.
 7. Follow the optional package check below for *other* packages. Reload Pi to
    discover updated resources.
 8. **Antigravity Argon portability:** the repo templates include the provider package, enabled model, and model metadata. When the user is setting up Argon in a new environment, consult `docs/gemini-4-argon.md` and verify the local settings/model override/authentication without exposing credentials. Offer `bash "$repo/bin/ensure-antigravity-argon.sh"` only when compatibility repair is needed and the user approves its shell-profile and installed-package source edits. It is tuned for Linux/Termux; do not silently run it on other platforms.
+9. **Device model catalog:** Update copies repository-managed files only. It must never enroll a device, never create or overwrite `<agent-dir>/device-profile.json`, and never modify `models.json` outside an enrolled device profile. If `<agent-dir>/device-profile.json` exists, the device is already enrolled: leave it untouched and report `bash bin/device-models.sh status` output. Enrollment is always an explicit user action (`bash "$repo/bin/device-models.sh" enroll <device-id>`).
 
 ## Reinstall
 
@@ -66,6 +67,13 @@ Diff?** If an action was specified, proceed without repeating the question.
    follow `docs/gemini-4-argon.md`; credentials are environment-specific and must
    not be copied. Offer the Linux/Termux compatibility repair script only after
    reviewing its shell-profile and installed-package source changes with the user.
+9. **Device model catalog:** Reinstall restores repository-managed files. It must
+   never enroll a device automatically, and it must not activate the MacBook
+   profile on another machine. Restore device model preferences only with
+   explicit opt-in (`bash "$repo/bin/device-models.sh" restore <device-id> --yes`).
+   Preserve `auth.json`, `trust.json`, sessions, and any `models.json` entry
+   that is not part of the device profile. If `<agent-dir>/device-profile.json`
+   exists, keep it; if it does not, do not create it.
 
 ## Sync / Diff
 
@@ -77,6 +85,15 @@ Diff?** If an action was specified, proceed without repeating the question.
 - **Diff**: compare `agents`, `extensions`, `prompts`, `themes`, `bin`, `APPEND_SYSTEM.md`, and the mandatory
   `skills/pi-cost/` bundle against the installed agent directory. Never diff
   credentials or session logs into public output.
+- **Device profile sync**: an enrolled device may push a sanitized model
+  snapshot with `bash bin/device-models.sh sync <device-id>`. It writes only
+  non-sensitive metadata into `device-profiles/<device-id>/` and never copies
+  local authentication material, account identifiers, balances, hostname,
+  username, home path, or hardware identifiers. Review the generated diff
+  (`git diff -- device-profiles/`) before committing.
+- **Device profile diff**: use `bash bin/device-models.sh diff [device-id]` to
+  compare the local catalog with the tracked profile. It separates safe model
+  metadata from the local-only fields that are never committed.
 
 ## Post-action optional package check
 

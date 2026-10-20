@@ -75,13 +75,19 @@ by diffing agents, extensions, prompts, and bin.
 | Path | Purpose |
 |------|---------|
 | `agents/` | Custom subagents (advisor, planner, reviewer, scout, worker) |
+| `agents/*bunny*.md` | Bunny family (MiniMax M3.1 Flash) — scouts and workers with pinned thinking levels |
 | `extensions/` | Custom pi extensions (including `/statusline` bloat manager and last-message/cache status) |
+| `extensions/bunny-router.ts` | Registers the stable `bunny/minimax-m3.1-flash` virtual model and resolves its physical route per request |
+| `extensions/bunny-route.mjs` | Pure, testable Bunny routing core (schedule, credit gates, failure diagnostics) |
 | `statusline.json.template` | Default statusline settings (`showExtensions: false` clean default) |
 | `prompts/` | Prompt templates |
 | `themes/` | Dark-mode-first custom themes (`favor-cream`, `favor-dark`, `favor-events`, `favor-finance-green`, `favor-indigo`, `favor-watershed`, `finance-editorial`, `gaia-research`, `gaia-skill-tree`) |
 | `bin/` | Utility scripts |
 | `bin/ensure-quota-line.sh` | Idempotent quota surface verification ensuring quota box is never on by default and default is always quota line |
 | `bin/ensure-antigravity-argon.sh` | Linux/Termux compatibility repair for Gemini 4 Argon model mapping; review its shell-profile and package-source edits before running on other platforms |
+| `bin/device-models.sh` | Device-scoped model catalog: `enroll`, `status`, `verify`, `sync`, `diff`, `restore`, `disable` |
+| `device-profiles/` | Sanitized, Git-trackable per-device model catalog and routing policy (`macbook-air-m1` first) |
+| `docs/bunny-routing.md` | Bunny provider transition, credit safety, and device enrollment guide |
 | `docs/gemini-4-argon.md` | Antigravity/Argon setup and portability notes |
 | `settings.json.template` | Base settings — fill in your provider + models |
 | `skills/pi-cost/` | Mandatory v1.10.0 skill, cost calculator, license/notice, and auto-refreshing Gaia/LiteLLM price catalog |
@@ -98,6 +104,77 @@ by diffing agents, extensions, prompts, and bin.
 ## What's NOT Committed (stays local)
 
 `auth.json` · `models.json` · `trust.json` · `sessions/` · any API keys or proxy config
+· `<agent-dir>/device-profile.json` (device enrollment and routing authorization flags)
+
+---
+
+## Bunny — routed MiniMax M3.1 Flash subagents
+
+The Bunny family keeps one stable internal identity, `bunny/minimax-m3.1-flash`.
+The physical provider behind it is resolved per request, so the published
+OpenRouter-free → Vercel AI Gateway transition never requires renaming or
+editing an agent file.
+
+| Agent | Level | Agent | Level |
+|---|---|---|---|
+| `scout-bunny` (alias) | low | `worker-bunny` (alias) | high |
+| `scout-bunny-low` | low | `worker-bunny-low` | low |
+| `scout-bunny-medium` | medium | `worker-bunny-medium` | medium |
+| | | `worker-bunny-high` | high |
+| | | `worker-bunny-xhigh` | xhigh |
+| | | `worker-bunny-max` | max |
+
+- **Before 2026-10-22 20:00 Asia/Manila** the scheduled route is OpenRouter
+  free (`minimax/minimax-m3.1-flash:free`), which cannot bill.
+- **From that moment** the scheduled route is the Vercel AI Gateway
+  (`minimax/minimax-m3.1-flash`), used only after free-credit eligibility is
+  verified or paid use is explicitly authorized.
+- A missing credential, a missing model, an unverified credit state, or an
+  unsupported thinking level produces an actionable error. There is no
+  automatic purchase, no auto top-up, and no silent paid fallback.
+- In-flight jobs finish on the provider that already served them; new
+  invocations use the new route.
+- The default Flash provider (`antigravity/gemini-3.8-flash`) and every other
+  model family are untouched.
+
+```bash
+pi --list-models bunny                 # the registered virtual model
+bash bin/device-models.sh status        # local enrollment + resolved route
+```
+
+Full guide: [`docs/bunny-routing.md`](docs/bunny-routing.md).
+
+---
+
+## Device-scoped model catalog
+
+Each machine may keep its own model catalog and routing preferences. Only
+machines that explicitly enroll are affected; enrollment never happens during
+an Update or a Reinstall.
+
+```bash
+bash bin/device-models.sh list
+bash bin/device-models.sh status
+bash bin/device-models.sh enroll macbook-air-m1
+bash bin/device-models.sh verify
+bash bin/device-models.sh sync macbook-air-m1
+bash bin/device-models.sh diff macbook-air-m1
+bash bin/device-models.sh restore macbook-air-m1 --yes
+bash bin/device-models.sh disable
+```
+
+- Git-tracked and sanitized: `device-profiles/<device>/profile.json` and
+  `device-profiles/<device>/model-catalog.json` — device alias, provider and
+  model identifiers, routing policy, availability, verification timestamps.
+- Local only: `<agent-dir>/device-profile.json` — enrollment flag, free-credit
+  and paid-use authorization flags, spend counters. Never synced, never
+  committed.
+- `sync` writes a sanitized snapshot and excludes every secret, account
+  identifier, balance, and machine identifier.
+- `restore` only adds the profile's models; it never removes entries and
+  never touches `auth.json`.
+
+Details: [`device-profiles/README.md`](device-profiles/README.md).
 
 ---
 
