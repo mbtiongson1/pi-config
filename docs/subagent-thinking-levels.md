@@ -105,6 +105,38 @@ tools: read, edit, write, bash
 
 Valid thinking levels: `off` · `minimal` · `low` · `medium` · `high` · `xhigh` · `max`.
 
+### The Bunny family — a stable identity with a routed provider
+
+The Bunny agents pin the stable identity `bunny/minimax-m3.1-flash`, which is
+a Pi **virtual model** registered by `extensions/bunny-router.ts`. The physical
+provider behind it is resolved per request, so the published OpenRouter-free →
+Vercel AI Gateway transition never requires renaming or editing an agent file.
+
+```markdown
+---
+name: worker-bunny-high
+description: Bunny worker (MiniMax M3.1 Flash) at high effort
+role: worker
+model: bunny/minimax-m3.1-flash:high
+thinking: high
+---
+```
+
+Rules for this family:
+
+- Every invocation pins an explicit level. `off` and `minimal` are not part of
+  the family: the OpenRouter free route maps both to `null`, and MiniMax
+  requires a reasoning budget.
+- An unsupported level fails with an explicit diagnostic; it is never
+  silently downgraded.
+- No Bunny agent sets `max_turns` or `max_cost`.
+- Continuation and retry requests stay on the provider that already served the
+  turn, so a route change never interrupts an in-flight job.
+- The route fails closed when a credential, the model, or the credit
+  authorization is missing. There is no automatic paid fallback.
+
+Full guide: [`docs/bunny-routing.md`](bunny-routing.md).
+
 ---
 
 ## Partial Completion & Recovery Receipts

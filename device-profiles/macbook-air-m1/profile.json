@@ -1,0 +1,171 @@
+{
+  "$schema": "../schema.json",
+  "version": 1,
+  "device": {
+    "id": "macbook-air-m1",
+    "alias": "MacBook Air M1",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "notes": "First enrolled device. Owns a sanitized snapshot of the locally available model catalog."
+  },
+  "optIn": {
+    "enabled": true,
+    "enrolledAt": "2026-10-20T20:52:10Z",
+    "enrolledBy": "bin/device-models.sh enroll macbook-air-m1"
+  },
+  "providers": {
+    "available": [
+      "openrouter",
+      "vercel-ai-gateway"
+    ],
+    "credentials": {
+      "openrouter": {
+        "configured": true,
+        "source": "stored",
+        "verifiedAt": "2026-10-20T21:12:45Z"
+      },
+      "vercel-ai-gateway": {
+        "configured": false,
+        "source": "none",
+        "verifiedAt": "2026-10-20T21:12:45Z"
+      }
+    }
+  },
+  "models": {
+    "enabled": [
+      "openrouter/minimax/minimax-m3.1-flash:free",
+      "vercel-ai-gateway/minimax/minimax-m3.1-flash"
+    ],
+    "supportedThinkingLevels": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  "bunny": {
+    "identity": "bunny/minimax-m3.1-flash",
+    "thinkingLevels": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "preferredBeforeCutoff": "openrouter-free",
+    "preferredAfterCutoff": "vercel-ai-gateway",
+    "routes": [
+      {
+        "id": "openrouter-free",
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3.1-flash:free",
+        "api": "openai-completions",
+        "baseUrl": "https://openrouter.ai/api/v1",
+        "freeUntil": "2026-10-22T12:00:00Z",
+        "freeGuarantee": "no-charge",
+        "requiresFreeVerification": false,
+        "credential": "OPENROUTER_API_KEY, or /login openrouter",
+        "reference": "mbtiongson1/pi-config#9",
+        "note": "OpenRouter `:free` variant \u2014 served at $0, cannot bill.",
+        "thinkingLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "scheduleOrder": 1
+      },
+      {
+        "id": "vercel-ai-gateway",
+        "provider": "vercel-ai-gateway",
+        "model": "minimax/minimax-m3.1-flash",
+        "api": "anthropic-messages",
+        "baseUrl": "https://ai-gateway.vercel.sh",
+        "freeUntil": "2026-10-22T12:00:00Z",
+        "freeGuarantee": "promotional",
+        "requiresFreeVerification": true,
+        "credential": "AI_GATEWAY_API_KEY, or /login vercel-ai-gateway",
+        "reference": "mbtiongson1/pi-config#10",
+        "note": "Vercel AI Gateway \u2014 free while MiniMax serves the request; account credit eligibility is personal.",
+        "thinkingLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "scheduleOrder": 2
+      }
+    ],
+    "policy": {
+      "autoPurchase": false,
+      "autoTopUp": false,
+      "paidOpenRouterFallback": false,
+      "minimaxDirectPaid": false,
+      "paidUseRequiresExplicitAuthorization": true,
+      "spendCapUsd": 5
+    },
+    "subagents": {
+      "scout-bunny": {
+        "variant": "scout-bunny-low",
+        "thinkingLevel": "low"
+      },
+      "scout-bunny-low": {
+        "variant": "scout-bunny-low",
+        "thinkingLevel": "low"
+      },
+      "scout-bunny-medium": {
+        "variant": "scout-bunny-medium",
+        "thinkingLevel": "medium"
+      },
+      "worker-bunny": {
+        "variant": "worker-bunny-high",
+        "thinkingLevel": "high"
+      },
+      "worker-bunny-low": {
+        "variant": "worker-bunny-low",
+        "thinkingLevel": "low"
+      },
+      "worker-bunny-medium": {
+        "variant": "worker-bunny-medium",
+        "thinkingLevel": "medium"
+      },
+      "worker-bunny-high": {
+        "variant": "worker-bunny-high",
+        "thinkingLevel": "high"
+      },
+      "worker-bunny-xhigh": {
+        "variant": "worker-bunny-xhigh",
+        "thinkingLevel": "xhigh"
+      },
+      "worker-bunny-max": {
+        "variant": "worker-bunny-max",
+        "thinkingLevel": "max"
+      }
+    }
+  },
+  "availability": {
+    "checkedAt": "2026-10-20T21:12:45Z",
+    "models": {
+      "openrouter/minimax/minimax-m3.1-flash:free": {
+        "status": "available",
+        "thinkingLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "contextWindow": 1000000,
+        "maxTokens": 524288
+      },
+      "vercel-ai-gateway/minimax/minimax-m3.1-flash": {
+        "status": "unavailable",
+        "note": "Not in the local Pi catalog. Run 'pi update --models' after configuring the provider credential."
+      }
+    }
+  },
+  "lastVerifiedAt": "2026-10-20T21:12:45Z"
+}

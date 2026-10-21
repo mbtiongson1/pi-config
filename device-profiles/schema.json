@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/mbtiongson1/pi-config/device-profiles/schema.json",
+  "title": "pi-config device profile",
+  "description": "Sanitized, Git-trackable per-device model catalog and routing policy. Never contains credentials, account identifiers, balances, hostnames, usernames, or home paths.",
+  "type": "object",
+  "required": ["version", "device", "optIn", "providers", "models", "bunny", "lastVerifiedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "integer", "const": 1 },
+    "device": {
+      "type": "object",
+      "required": ["id", "alias", "platform", "architecture"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,63}$",
+          "description": "Stable, non-identifying device slug."
+        },
+        "alias": { "type": "string", "minLength": 1, "description": "Human-readable device name." },
+        "platform": { "type": "string", "enum": ["darwin", "linux", "win32", "android", "termux", "other"] },
+        "architecture": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string", "description": "Free-form, non-identifying notes." }
+      }
+    },
+    "optIn": {
+      "type": "object",
+      "required": ["enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "enrolledAt": { "type": ["string", "null"] },
+        "enrolledBy": { "type": "string", "description": "How enrollment happened, e.g. 'bin/device-models.sh enroll'." }
+      }
+    },
+    "providers": {
+      "type": "object",
+      "required": ["available", "credentials"],
+      "additionalProperties": false,
+      "properties": {
+        "available": { "type": "array", "items": { "type": "string" } },
+        "credentials": {
+          "type": "object",
+          "description": "Provider -> credential status. Never contains keys, account ids, or balances.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["configured"],
+            "additionalProperties": false,
+            "properties": {
+              "configured": { "type": "boolean" },
+              "source": { "type": "string", "enum": ["stored", "environment", "runtime", "none"] },
+              "verifiedAt": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "required": ["enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "array", "items": { "type": "string" }, "description": "provider/model-id entries enabled on this device." },
+        "supportedThinkingLevels": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "bunny": {
+      "type": "object",
+      "required": ["identity", "thinkingLevels", "routes", "policy"],
+      "additionalProperties": false,
+      "properties": {
+        "identity": { "type": "string", "description": "Stable internal Bunny model identity." },
+        "thinkingLevels": { "type": "array", "items": { "type": "string" } },
+        "preferredBeforeCutoff": { "type": "string" },
+        "preferredAfterCutoff": { "type": "string" },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "provider", "model", "freeUntil", "freeGuarantee"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "provider": { "type": "string" },
+              "model": { "type": "string" },
+              "api": { "type": "string" },
+              "baseUrl": { "type": "string" },
+              "freeUntil": { "type": "string", "format": "date-time" },
+              "freeGuarantee": { "type": "string", "enum": ["no-charge", "promotional"] },
+              "requiresFreeVerification": { "type": "boolean" },
+              "thinkingLevels": { "type": "array", "items": { "type": "string" } },
+              "scheduleOrder": { "type": "integer", "minimum": 1 },
+              "credential": { "type": "string" },
+              "reference": { "type": "string" },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "autoPurchase": { "type": "boolean" },
+            "autoTopUp": { "type": "boolean" },
+            "paidOpenRouterFallback": { "type": "boolean" },
+            "minimaxDirectPaid": { "type": "boolean" },
+            "paidUseRequiresExplicitAuthorization": { "type": "boolean" },
+            "spendCapUsd": { "type": "number", "minimum": 0 }
+          }
+        },
+        "subagents": {
+          "type": "object",
+          "description": "Bunny agent -> variant/thinking level mapping.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "variant": { "type": "string" },
+              "thinkingLevel": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "availability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "checkedAt": { "type": ["string", "null"] },
+        "models": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "status": { "type": "string", "enum": ["available", "unavailable", "unknown"] },
+              "note": { "type": "string" },
+              "thinkingLevels": { "type": "array", "items": { "type": "string" } },
+              "contextWindow": { "type": "number" },
+              "maxTokens": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "lastVerifiedAt": { "type": ["string", "null"] }
+  }
+}

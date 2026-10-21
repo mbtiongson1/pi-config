@@ -155,11 +155,18 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 
 	function updateStatusline(): void {
 		if (!currentContext?.ui) return;
-		const text = renderStatus(currentContext.ui.theme);
-		currentContext.ui.setStatus("subagent-monitor", text || undefined);
-		// Suppress generic unformatted subagent status when active
-		if (text) {
-			currentContext.ui.setStatus("subagent", undefined);
+		try {
+			const text = renderStatus(currentContext.ui.theme);
+			currentContext.ui.setStatus("subagent-monitor", text || undefined);
+			// Suppress generic unformatted subagent status when active
+			if (text) {
+				currentContext.ui.setStatus("subagent", undefined);
+			}
+		} catch {
+			// The session context went away (print-mode exit, reload, replace).
+			// The UI accessors throw on a stale context; a status refresh must
+			// never take the process down with it.
+			currentContext = null;
 		}
 	}
 
@@ -199,6 +206,14 @@ export default function subagentMonitorExtension(pi: ExtensionAPI): void {
 		if (shouldTick && !ticker) {
 			ticker = setInterval(() => {
 				updateStatusline();
+				if (!currentContext) {
+					// The session is gone; stop the ticker instead of ticking on.
+					if (ticker) {
+						clearInterval(ticker);
+						ticker = null;
+					}
+					return;
+				}
 				if (activeTasks.size === 0 && !recentTerminal) {
 					if (ticker) {
 						clearInterval(ticker);

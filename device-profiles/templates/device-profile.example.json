@@ -1,0 +1,57 @@
+{
+  "$schema": "../schema.json",
+  "version": 1,
+  "device": {
+    "id": "example-device",
+    "alias": "Example Device",
+    "platform": "linux",
+    "architecture": "x64",
+    "notes": "Copy this file, adjust the fields, and enroll with bin/device-models.sh enroll <device-id>."
+  },
+  "optIn": {
+    "enabled": false,
+    "enrolledBy": "bin/device-models.sh enroll <device-id>"
+  },
+  "providers": {
+    "available": ["openrouter", "vercel-ai-gateway"],
+    "credentials": {
+      "openrouter": { "configured": false, "source": "none" },
+      "vercel-ai-gateway": { "configured": false, "source": "none" }
+    }
+  },
+  "models": {
+    "enabled": [],
+    "supportedThinkingLevels": ["low", "medium", "high", "xhigh", "max"]
+  },
+  "bunny": {
+    "identity": "bunny/minimax-m3.1-flash",
+    "thinkingLevels": ["low", "medium", "high", "xhigh", "max"],
+    "preferredBeforeCutoff": "openrouter-free",
+    "preferredAfterCutoff": "vercel-ai-gateway",
+    "routes": [],
+    "policy": {
+      "autoPurchase": false,
+      "autoTopUp": false,
+      "paidOpenRouterFallback": false,
+      "minimaxDirectPaid": false,
+      "paidUseRequiresExplicitAuthorization": true,
+      "spendCapUsd": 5
+    },
+    "subagents": {
+      "scout-bunny": { "variant": "scout-bunny-low", "thinkingLevel": "low" },
+      "scout-bunny-low": { "variant": "scout-bunny-low", "thinkingLevel": "low" },
+      "scout-bunny-medium": { "variant": "scout-bunny-medium", "thinkingLevel": "medium" },
+      "worker-bunny": { "variant": "worker-bunny-high", "thinkingLevel": "high" },
+      "worker-bunny-low": { "variant": "worker-bunny-low", "thinkingLevel": "low" },
+      "worker-bunny-medium": { "variant": "worker-bunny-medium", "thinkingLevel": "medium" },
+      "worker-bunny-high": { "variant": "worker-bunny-high", "thinkingLevel": "high" },
+      "worker-bunny-xhigh": { "variant": "worker-bunny-xhigh", "thinkingLevel": "xhigh" },
+      "worker-bunny-max": { "variant": "worker-bunny-max", "thinkingLevel": "max" }
+    }
+  },
+  "availability": {
+    "checkedAt": null,
+    "models": {}
+  },
+  "lastVerifiedAt": null
+}
