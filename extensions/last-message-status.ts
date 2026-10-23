@@ -1,7 +1,8 @@
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 const UPDATE_INTERVAL_MS = 60_000;
-const COLD_CACHE_AFTER_MINUTES = 5;
+const WARNING_AFTER_MINUTES = 30;
+const ERROR_AFTER_MINUTES = 60;
 
 function getLastMessageAt(ctx: ExtensionContext): number | undefined {
 	const timestamps = ctx.sessionManager
@@ -21,19 +22,14 @@ function renderStatus(ctx: ExtensionContext): void {
 	}
 
 	const minutesAgo = Math.max(0, Math.floor((Date.now() - lastMessageAt) / 60_000));
-	const age = `${minutesAgo} min ago`;
-	if (minutesAgo >= COLD_CACHE_AFTER_MINUTES) {
-		ctx.ui.setStatus(
-			"last-message",
-			ctx.ui.theme.fg(
-				"warning",
-				`last message ${age} · cache cold — /compact recommended (unless you need the context)`,
-			),
-		);
-		return;
-	}
+	const age = `${minutesAgo} mins ago`;
+	const color = minutesAgo >= ERROR_AFTER_MINUTES
+		? "error"
+		: minutesAgo >= WARNING_AFTER_MINUTES
+			? "warning"
+			: "dim";
 
-	ctx.ui.setStatus("last-message", ctx.ui.theme.fg("dim", `last message ${age}`));
+	ctx.ui.setStatus("last-message", ctx.ui.theme.fg(color, age));
 }
 
 export default function lastMessageStatusExtension(pi: ExtensionAPI): void {
