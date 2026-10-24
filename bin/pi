@@ -40,11 +40,29 @@ fi
 PI_MANAGED_INSTALL_ROOT=$pi_agent_dir/install
 export PI_MANAGED_INSTALL_ROOT
 
-# Keep Node V8 heap bounded to 2GB to prevent lazy memory growth and preemptive LMKD SIGKILL
-case "${NODE_OPTIONS:-}" in
-  *--max-old-space-size*) ;;
-  *) export NODE_OPTIONS="--max-old-space-size=2048 ${NODE_OPTIONS:-}" ;;
-esac
+# Configure Node V8 heap limit.
+# On Darwin (macOS), default to 4096MB (4GB) to avoid FatalProcessOutOfMemory crashes
+# during large sessions, diffs, subagents, and memory-intensive tool execution.
+# On Linux/Android (Termux), default to 2048MB (2GB) to avoid Android LMKD SIGKILL.
+# Strip any existing or conflicting --max-old-space-size flags so stale outer env
+# caps (e.g. 384MB) do not cause V8 to abort.
+if [ -z "${PI_MAX_OLD_SPACE_SIZE:-}" ]; then
+  case "$(uname -s 2>/dev/null)" in
+    Darwin) pi_default_heap=4096 ;;
+    *)      pi_default_heap=2048 ;;
+  esac
+else
+  pi_default_heap="$PI_MAX_OLD_SPACE_SIZE"
+fi
+
+cleaned_node_options=""
+for opt in ${NODE_OPTIONS:-}; do
+  case "$opt" in
+    --max-old-space-size=*) ;;
+    *) cleaned_node_options="${cleaned_node_options:+$cleaned_node_options }$opt" ;;
+  esac
+done
+export NODE_OPTIONS="--max-old-space-size=$pi_default_heap${cleaned_node_options:+ $cleaned_node_options}"
 
 # Ensure quota line default preference before launching Pi (box should never be on by default)
 if [ -x "$pi_agent_dir/bin/ensure-quota-line.sh" ]; then
@@ -59,8 +77,8 @@ fi
 "$pi_release_bin" "$@"
 status=$?
 
-# If terminated by SIGKILL (137 = 128 + 9), SIGSEGV (139 = 128 + 11), or SIGTERM (143 = 128 + 15)
-if [ "$status" -eq 137 ] || [ "$status" -eq 139 ] || [ "$status" -eq 143 ]; then
+# If terminated by SIGABRT (134 = 128 + 6), SIGKILL (137 = 128 + 9), SIGSEGV (139 = 128 + 11), or SIGTERM (143 = 128 + 15)
+if [ "$status" -eq 134 ] || [ "$status" -eq 137 ] || [ "$status" -eq 139 ] || [ "$status" -eq 143 ]; then
   mkdir -p "$pi_agent_dir/logs"
   log_file="$pi_agent_dir/logs/crash-diagnostics.log"
   {
@@ -68,13 +86,21 @@ if [ "$status" -eq 137 ] || [ "$status" -eq 139 ] || [ "$status" -eq 143 ]; then
     printf 'Exit Status: %d (Signal %d)\n' "$status" "$((status - 128))"
     printf 'Args: %s\n' "$*"
     printf 'Memory Status:\n'
-    grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo 2>/dev/null
+    if [ -f /proc/meminfo ]; then
+      grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo 2>/dev/null
+    elif command -v vm_stat >/dev/null 2>&1; then
+      vm_stat 2>/dev/null | head -n 8
+    fi
     printf 'Top Processes by RSS:\n'
     ps -eo pid,ppid,rss,vsz,comm --sort=-rss 2>/dev/null | head -n 8
     printf '===============================================\n'
   } >> "$log_file" 2>/dev/null
 
-  if [ "$status" -eq 137 ]; then
+  if [ "$status" -eq 134 ]; then
+    printf '\n\033[1;31m[Pi Crash Guard]\033[0m Pi was terminated by SIGABRT (Signal 6 - V8 Fatal Out of Memory).\n' >&2
+    printf '  • Diagnostics recorded to: %s\n' "$log_file" >&2
+    printf '  • To resume with larger heap: \033[1;32mPI_MAX_OLD_SPACE_SIZE=8192 pi -c\033[0m\n\n' >&2
+  elif [ "$status" -eq 137 ]; then
     printf '\n\033[1;33m[Pi Crash Guard]\033[0m Pi was terminated by SIGKILL (Signal 9 - Android LMKD / Out of Memory).\n' >&2
     printf '  • Diagnostics recorded to: %s\n' "$log_file" >&2
     printf '  • To resume your session, run: \033[1;32mpi -c\033[0m\n\n' >&2
