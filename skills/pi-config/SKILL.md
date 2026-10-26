@@ -34,7 +34,9 @@ Diff?** If an action was specified, proceed without repeating the question.
    and patching all `quota-panel.ts` instances.
 5. **Mandatory Subagent & Codemode reliability:** `bash "$repo/bin/ensure-subagent-config.sh"`.
    Ensures `~/.pi/subagent.json` (30m execution budget, 5m stall probe, stall kill disabled),
-   statusline allowed keys, and `subagent-monitor.ts` extension are persistently configured.
+   statusline allowed keys, `subagent-monitor.ts`, and Durable Subagent Recovery
+   (`bin/ensure-durable-recovery.sh`, `extensions/durable-subagent-recovery.ts`,
+   and `~/.pi/durable/subagents.sqlite` WAL ledger) are persistently configured across upgrades.
 6. **Mandatory engineering contract:** `bash "$repo/bin/install-append-system.sh"`.
    Idempotently writes the repo `APPEND_SYSTEM.md` into a marked block of
    `<agent-dir>/APPEND_SYSTEM.md`, preserving any user text outside it. Never
@@ -59,7 +61,8 @@ Diff?** If an action was specified, proceed without repeating the question.
 5. **Always** run `bash "$repo/bin/ensure-quota-line.sh"` to guarantee the
    quota box is never on by default and default is always the compact quota line.
 6. **Always** run `bash "$repo/bin/ensure-subagent-config.sh"` to guarantee
-   persistent subagent timeouts, stall policy, and visibility extensions.
+   persistent subagent timeouts, stall policy, visibility extensions, and Durable Subagent Recovery
+   (`~/.pi/durable/` WAL ledger, session preservation, and `/subagent-recover`).
 7. **Always** run `bash "$repo/bin/install-append-system.sh"`; Reinstall must
    not wipe `<agent-dir>/APPEND_SYSTEM.md` (the installer refreshes only its
    managed block). Then do the optional package check and reload Pi.

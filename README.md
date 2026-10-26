@@ -77,6 +77,9 @@ by diffing agents, extensions, prompts, and bin.
 | `agents/` | Custom subagents (advisor, planner, reviewer, scout, worker) |
 | `agents/*bunny*.md` | Bunny family (MiniMax M3.1 Flash) — scouts and workers with pinned thinking levels |
 | `extensions/` | Custom pi extensions (including `/statusline` bloat manager and last-message/cache status) |
+| `extensions/durable-subagent-recovery.ts` | Additive SQLite WAL ledger for crash-resilient subagent tracking, session preservation, and non-destructive recovery |
+| `bin/ensure-durable-recovery.sh` | Idempotent setup and validation of private `~/.pi/durable` storage, WAL DB, and extension deployment |
+| `bin/durable-subagent-doctor.sh` | Health checks, process liveness inspection, and safe rollback for durable subagent recovery |
 | `extensions/bunny-router.ts` | Registers the stable `bunny/minimax-m3.1-flash` virtual model and resolves its physical route per request |
 | `extensions/bunny-route.mjs` | Pure, testable Bunny routing core (schedule, credit gates, failure diagnostics) |
 | `statusline.json.template` | Default statusline settings (`showExtensions: false` clean default) |
@@ -105,6 +108,24 @@ by diffing agents, extensions, prompts, and bin.
 
 `auth.json` · `models.json` · `trust.json` · `sessions/` · any API keys or proxy config
 · `<agent-dir>/device-profile.json` (device enrollment and routing authorization flags)
+
+---
+
+## Durable Subagent Recovery
+
+Crash-resilient subagent tracking, automatic session preservation, and safe logical resumption for Pi 1.4.0+ and `@parke.dev/pi-subagent`.
+
+- **Zero External Dependencies**: Uses Node 24 built-in `node:sqlite` in WAL mode (`PRAGMA synchronous = FULL`).
+- **Vendor Orphan Protection**: Prevents native startup hooks from killing active subagent workers on restart.
+- **Transcript Preservation**: Copies child session `.jsonl` files to private storage (`~/.pi/durable/sessions`, `0600` permissions), guarding against lifecycle distillation.
+- **Absolute Path Resumption**: Solves CWD mismatch and fork prompt issues during session recovery.
+- **CAS Recovery Leases**: Transactional claim preventing duplicate resumption across concurrent parent processes.
+- **Commands & Tools**:
+  - `/subagent-recover`: Slash command listing recoverable jobs and exact resume commands.
+  - `subagent_recover`: Model-callable tool for automated recovery inspection and lease claims.
+  - `bin/durable-subagent-doctor.sh`: Standalone CLI diagnostic and rollback utility.
+
+See [docs/durable-subagent-recovery.md](docs/durable-subagent-recovery.md) for full architecture details.
 
 ---
 

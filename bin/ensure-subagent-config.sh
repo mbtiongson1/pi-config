@@ -109,4 +109,9 @@ if [[ -x "$script_dir/ensure-quota-line.sh" ]]; then
   "$script_dir/ensure-quota-line.sh"
 fi
 
+# 7. Ensure Durable Subagent Recovery (WAL ledger, permissions, and extension)
+if [[ -x "$script_dir/ensure-durable-recovery.sh" ]]; then
+  "$script_dir/ensure-durable-recovery.sh"
+fi
+
 echo "All reliability preferences verified."
