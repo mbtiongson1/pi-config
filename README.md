@@ -116,10 +116,10 @@ by diffing agents, extensions, prompts, and bin.
 Crash-resilient subagent tracking, automatic session preservation, and safe logical resumption for Pi 1.4.0+ and `@parke.dev/pi-subagent`.
 
 - **Zero External Dependencies**: Uses Node 24 built-in `node:sqlite` in WAL mode (`PRAGMA synchronous = FULL`).
-- **Vendor Orphan Protection**: Prevents native startup hooks from killing active subagent workers on restart.
+- **Non-Mutating Observer Lifecycle**: Observes subagent execution without mutating vendor lock records or suppressing native maintenance sets, safely preserving transcripts to private storage for logical recovery.
 - **Transcript Preservation**: Copies child session `.jsonl` files to private storage (`~/.pi/durable/sessions`, `0600` permissions), guarding against lifecycle distillation.
 - **Absolute Path Resumption**: Solves CWD mismatch and fork prompt issues during session recovery.
-- **CAS Recovery Leases**: Transactional claim preventing duplicate resumption across concurrent parent processes.
+- **Transactional Lineage & Takeover Reservations**: Atomic lease and takeover reservation binding child runs, preventing duplicate workers across expired leases or uncoordinated callers.
 - **Commands & Tools**:
   - `/subagent-recover`: Slash command listing recoverable jobs and exact resume commands.
   - `subagent_recover`: Model-callable tool for automated recovery inspection and lease claims.

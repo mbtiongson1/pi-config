@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
@@ -50,8 +49,8 @@ function createTestSandbox() {
 	};
 }
 
-test("End-to-End Real Pi SDK & Subagent Integration Fixture", async (t) => {
-	// Sanitize credentials environment for isolated deterministic loopback testing
+test("Durable Subagent Recovery Mock Contract & Policy Test Fixture", async (t) => {
+	// Sanitize credentials environment for isolated deterministic testing
 	const savedEnv = { ...process.env };
 	delete process.env.ANTHROPIC_API_KEY;
 	delete process.env.OPENAI_API_KEY;
@@ -67,25 +66,6 @@ test("End-to-End Real Pi SDK & Subagent Integration Fixture", async (t) => {
 	process.env.PI_SUBAGENT_LOCK_DIR = sandbox.vendorLocksDir;
 	process.env.PI_SUBAGENT_SESSION_DIR = sandbox.vendorSessionsDir;
 	process.env.PI_SUBAGENT_CONFIG = path.join(sandbox.tmpRoot, "subagent.json");
-
-	// Start a deterministic mock loopback SSE server on localhost
-	let serverPort = 0;
-	const server = http.createServer((req, res) => {
-		res.writeHead(200, {
-			"Content-Type": "text/event-stream",
-			"Cache-Control": "no-cache",
-			Connection: "keep-alive",
-		});
-		res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
-		res.end(`data: [DONE]\n\n`);
-	});
-
-	await new Promise((resolve) => {
-		server.listen(0, "127.0.0.1", () => {
-			serverPort = server.address().port;
-			resolve();
-		});
-	});
 
 	try {
 		// Import durable subagent recovery extension
@@ -359,7 +339,6 @@ test("End-to-End Real Pi SDK & Subagent Integration Fixture", async (t) => {
 			ledger.close();
 		});
 	} finally {
-		server.close();
 		sandbox.cleanup();
 		// Restore environment
 		for (const k in process.env) {

@@ -917,7 +917,7 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 	});
 
 	await t.test("16. Staged vendor compatibility patch isolated application & reversibility", () => {
-		const patchFile = path.join(REPO_ROOT, "patches", "@parke.dev-pi-subagent-v0.8.0-durable-lifecycle.patch");
+		const patchFile = path.join(REPO_ROOT, "patches", "@parke.dev-pi-subagent-v0.8.0-android-proc-safety.patch");
 		assert.ok(fs.existsSync(patchFile), "Vendor patch file must exist in repo");
 
 		const sandbox = createTestSandbox();
@@ -941,7 +941,7 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			assert.equal(applyRes.status, 0, `Patch apply failed: ${applyRes.stderr}`);
 
 			const patchedSha = execSync(`sha256sum "${testFile}"`, { encoding: "utf8" }).split(" ")[0];
-			assert.equal(patchedSha, "40a0d39335d6be0eadd1cedcd9b65818444063429a9ba9061d644ea516fe9d86", "Patched SHA256 must match expected");
+			assert.equal(patchedSha, "450398c72432ee2945a811ff981985d043fb85664d339d73c82d33d388a304c1", "Patched SHA256 must match expected");
 
 			// Reverse patch in sandbox
 			const revRes = spawnSync("patch", ["-R", "-d", testDir, "-p1"], {

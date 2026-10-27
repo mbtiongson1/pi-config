@@ -1,0 +1,33 @@
+--- a/src/process-lock.ts
++++ b/src/process-lock.ts
+@@ -126,7 +126,7 @@
+  * for liveness, but PID-reuse protection is weaker).
+  */
+ export function processStartTime(pid: number): number {
+-  if (process.platform === "linux") {
++  if (process.platform === "linux" || process.platform === "android") {
+     try {
+       const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+       // Proc name may contain spaces/parens; starttime is the 22nd field after the closing ')'.
+@@ -198,12 +198,21 @@
+     const live = processStartTime(identity.pid);
+     // If we can read startTime and it differs, this is a recycled PID.
+     if (live > 0 && live !== identity.startTime) return false;
++  } else {
++    // If identity has no verified birth startTime (startTime <= 0) but live platform
++    // supports /proc inspection and returns a valid live start time, this record
++    // lacks trusted birth identity; treat as unverifiable rather than blindly assuming alive.
++    const live = processStartTime(identity.pid);
++    if (live > 0) return false;
+   }
+   return true;
+ }
+
+ export function killProcessTree(identity: ProcessIdentity, signal: NodeJS.Signals = "SIGTERM"): void {
+   if (!identity.pid) return;
++  // Never signal a PID if its birth identity is unverified (startTime <= 0) while
++  // the platform can inspect process start times, preventing foreign/reused PID kills.
++  if (identity.startTime <= 0 && processStartTime(identity.pid) > 0) return;
+   try {
+     if (process.platform === "win32") {
+       // Use taskkill for the process tree.

@@ -9,11 +9,11 @@ It uses Node.js 24's native `node:sqlite` module (zero npm native dependencies) 
 
 ## The Core Design Gaps & Solutions
 
-### 1. Vendor Orphan Killing & Distillation Protection
-- **The Problem**: `@parke.dev/pi-subagent`'s `scheduleMaintenance` runs `reconcileOrphans` on session startup. If a subagent process was still alive across parent restarts, native subagent assumed it was an orphan and issued `SIGTERM` followed by `SIGKILL`. Furthermore, `sweepSessionsLifecycle` pruned unreferenced session files older than 1 hour into `.digest.json`, deleting the `.jsonl` transcript.
-- **The Solution**:
-  1. **Lock Record Shielding (`protectVendorOrphanRecords`)**: On startup, our extension checks active processes in `~/.pi/subagent-locks/runs/`. If a worker is verifiably alive via Linux kernel ticks, its vendor lock record is marked `terminalState: "detached-protected"`. Native `reconcileOrphans` skips it completely and **never** sends SIGTERM or SIGKILL.
-  2. **Session Preservation (`preserveSessionFile`)**: Active child `.jsonl` files are immediately preserved in `~/.pi/durable/sessions/<id>.jsonl` with `0600` permissions. Even if the vendor directory distills or purges transcripts, the durable transcript is intact and ready for resumption.
+### 1. Vendor Orphan Lifecycle & Distillation Protection
+- **The Problem**: `@parke.dev/pi-subagent`'s `scheduleMaintenance` runs `reconcileOrphans` on session startup. Active disconnected processes are reaped on parent restart, and `sweepSessionsLifecycle` converts non-busy sessions to `.digest.json`, deleting `.jsonl` transcripts. Mutating native locks to `terminal` strips child sessions and worktrees from `busy` and `liveWorktrees` sets, accelerating distillation.
+- **The Solution (Non-Mutating Observer)**:
+  1. **Non-Mutating Observer**: On startup, our extension scans vendor locks without modifying vendor files or claiming live process survival across restarts.
+  2. **Session Preservation (`preserveSessionFile`)**: Active child `.jsonl` files are immediately preserved in `~/.pi/durable/sessions/<id>.jsonl` with `0600` permissions before native maintenance runs. Even after native distillation purges the vendor transcripts, the preserved transcript is intact and ready for logical resumption.
 
 ### 2. Async Launch Receipt vs. Worker Completion
 - **The Problem**: For `async: true` subagent runs, the initial `tool_execution_end` represents only the launch receipt (`"Started run <id>"`), not actual subagent completion. Marking a job complete on initial tool return corrupts status tracking.
@@ -45,7 +45,7 @@ It uses Node.js 24's native `node:sqlite` module (zero npm native dependencies) 
 - `~/.pi/durable/` — Permissions `0700`
 - `~/.pi/durable/sessions/` — Permissions `0700`
 - `~/.pi/durable/subagents.sqlite` — Permissions `0600` (WAL and SHM files also `0600`)
-- **Corrupt DB Fail-safe**: If SQLite integrity check fails or the file is corrupted, the engine renames it to `subagents.sqlite.corrupt.<timestamp>` and initializes a clean DB without crashing Pi startup.
+- **Corrupt DB Fail-Closed Integrity**: If SQLite integrity check (`PRAGMA quick_check`) fails, ordinary initialization strictly fails closed with `DatabaseCorruptError`, leaving existing DB, WAL, and SHM files completely untouched to prevent silent state or lease loss. Automated destructive resets are prohibited; an explicit offline manual diagnostic procedure is provided.
 
 ---
 
@@ -61,12 +61,13 @@ It uses Node.js 24's native `node:sqlite` module (zero npm native dependencies) 
 
 ---
 
-## Important Operational Boundaries
+## Honest Scope & Support Matrix
 
-1. **`surviveReload: true` vs. Durable Subagents**:
-   - Pi's `bg_run` supports `surviveReload: true` for ordinary shell commands (`isAgent: false`) across same-process reload ONLY.
-   - It explicitly does **not** cover agent processes or OS-level crashes / Termux restarts.
-   - Durable Subagent Recovery handles LLM agent subagents across hard OS crashes, LMK events, and process restarts.
-2. **Reset / Restart Timing**:
-   - Never reset or reload while background tasks are active.
-   - A reset or restart must be authorized only when all critical tasks finish or checkpoint safely.
+1. **Permanent vs Temporary Worktrees**:
+   - Subagents launched with `isolation: "worktree"` operate in ephemeral checkouts under `.pi/subagent-worktrees/` that native subagent reaps on parent restart.
+   - Durable recovery supports permanent isolated or shared worktrees (e.g., permanent git worktrees or repo directories). Managed temporary worktrees cannot guarantee uncommitted WIP survival across restarts and are marked unresumable at admission.
+2. **Backend Matrix**:
+   - Resumption via preserved JSONL session transcripts is supported exclusively for the `pi` backend (`pi --session <path>`).
+   - Non-Pi backends (`claude`, `codex`) use different, non-interchangeable session models and are explicitly rejected for session transcript resumption.
+3. **Execution Constraints**:
+   - All requested and effective execution constraints (`profile`, `tools`, `backend: "pi"`, `model`, `thinking`, `agent`, `cwd`) are persisted at admission and pinned on generated resume specs, preventing profile escalation (such as `explore -> general`) or routing loss.
