@@ -46,12 +46,14 @@ try {
     process.exit(1);
   }
 
+  db.exec("PRAGMA busy_timeout = 5000;");
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA synchronous = FULL;");
   
-  // Ensure schema v2
+  // Ensure schema v3
   const verRow = db.prepare("PRAGMA user_version").get();
   const curVer = verRow ? Number(verRow.user_version) : 0;
+  if (!Number.isInteger(curVer) || curVer < 0 || curVer > 3) throw new Error("Unsupported durable recovery schema version: " + curVer);
   if (curVer < 1) {
     db.exec(`
       CREATE TABLE IF NOT EXISTS subagent_jobs (
@@ -97,7 +99,16 @@ try {
         unresumable_reason TEXT,
         takeover_reservation_id TEXT,
         superseded_by_job_id TEXT,
-        resumed_from_job_id TEXT
+        resumed_from_job_id TEXT,
+        reservation_artifact_path TEXT,
+        reservation_owner_pid INTEGER,
+        reservation_owner_ticks INTEGER,
+        reservation_owner_boot_id TEXT,
+        reservation_owner_hostname TEXT,
+        reservation_owner_session_id TEXT,
+        reservation_owner_session_file TEXT,
+        reservation_owner_cwd TEXT,
+        reservation_consumed_by_job_id TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_jobs_state ON subagent_jobs(state);
       CREATE INDEX IF NOT EXISTS idx_jobs_run_id ON subagent_jobs(run_id);
@@ -107,7 +118,8 @@ try {
       CREATE INDEX IF NOT EXISTS idx_jobs_resumable ON subagent_jobs(resumable);
       CREATE INDEX IF NOT EXISTS idx_jobs_superseded ON subagent_jobs(superseded_by_job_id);
       CREATE INDEX IF NOT EXISTS idx_jobs_resumed_from ON subagent_jobs(resumed_from_job_id);
-      PRAGMA user_version = 2;
+      CREATE INDEX IF NOT EXISTS idx_jobs_reservation_path ON subagent_jobs(reservation_artifact_path);
+      PRAGMA user_version = 3;
     `);
   } else if (curVer < 2) {
     const cols = [
@@ -122,6 +134,18 @@ try {
     db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_superseded ON subagent_jobs(superseded_by_job_id);");
     db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_resumed_from ON subagent_jobs(resumed_from_job_id);");
     db.exec("PRAGMA user_version = 2;");
+  }
+  if (curVer < 3) {
+    const cols = [
+      "reservation_artifact_path TEXT", "reservation_owner_pid INTEGER", "reservation_owner_ticks INTEGER",
+      "reservation_owner_boot_id TEXT", "reservation_owner_hostname TEXT", "reservation_owner_session_id TEXT",
+      "reservation_owner_session_file TEXT", "reservation_owner_cwd TEXT", "reservation_consumed_by_job_id TEXT"
+    ];
+    for (const c of cols) {
+      try { db.exec("ALTER TABLE subagent_jobs ADD COLUMN " + c + ";"); } catch {}
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_reservation_path ON subagent_jobs(reservation_artifact_path);");
+    db.exec("PRAGMA user_version = 3;");
   }
   
   db.close();

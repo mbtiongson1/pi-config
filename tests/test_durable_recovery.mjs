@@ -81,7 +81,7 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 
 			assert.equal(journalMode.journal_mode, "wal", "Journal mode must be WAL");
 			assert.equal(syncMode.synchronous, 2, "Synchronous mode must be FULL (2)");
-			assert.equal(userVersion.user_version, 2, "Schema version must be 2");
+			assert.equal(userVersion.user_version, 3, "Schema version must be 3");
 
 			// Check table exists
 			const tableInfo = ledger.db.prepare("SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='subagent_jobs'").get();
@@ -426,7 +426,9 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 							vendorLocksDir: sandbox.vendorLocksDir,
 							vendorSessionsDir: sandbox.vendorSessionsDir,
 						});
-						const outcome = writerLedger.claimResumeLease("contended_job", writerId, 30000);
+						const owner = { pid: process.pid, ticks: getProcessStartTimeTicks(process.pid), bootId: getSystemBootId(), hostname: os.hostname(), sessionId: writerId, sessionFile: path.join(sandbox.tmpRoot, `${writerId}.jsonl`), cwd: path.resolve(sandbox.tmpRoot) };
+						const leaseOwner = `session_${owner.pid}_${owner.ticks}_${owner.sessionId}_${owner.cwd}`;
+						const outcome = writerLedger.claimResumeLease("contended_job", leaseOwner, owner, 30000);
 						writerLedger.close();
 						resolve({ writerId, outcome });
 					});
@@ -439,9 +441,9 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			assert.equal(successes.length, 1, "Exactly one writer must acquire the lease");
 			assert.equal(failures.length, 3, "All other writers must be rejected");
 
-			const winner = successes[0].writerId;
+			const winnerLeaseOwner = successes[0].outcome.job.resume_lease_owner;
 			const finalJob = ledger.getJob("contended_job");
-			assert.equal(finalJob.resume_lease_owner, winner);
+			assert.equal(finalJob.resume_lease_owner, winnerLeaseOwner);
 			assert.equal(finalJob.state, "resuming");
 			assert.equal(finalJob.resume_count, 1);
 
@@ -454,9 +456,10 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 				state: "running",
 			});
 
-			const refuseOutcome = ledger.claimResumeLease("contended_job", "writer-E");
+			const activeOwner = { pid: process.pid, ticks: getProcessStartTimeTicks(process.pid), bootId: getSystemBootId(), hostname: os.hostname(), sessionId: "writer-E", sessionFile: path.join(sandbox.tmpRoot, "writer-E.jsonl"), cwd: path.resolve(sandbox.tmpRoot) };
+			const refuseOutcome = ledger.claimResumeLease("contended_job", `session_${activeOwner.pid}_${activeOwner.ticks}_${activeOwner.sessionId}_${activeOwner.cwd}`, activeOwner);
 			assert.equal(refuseOutcome.ok, false);
-			assert.equal(refuseOutcome.reason, "process_still_running", "Active running job must refuse resume");
+			assert.ok(["job_state_not_recoverable", "reservation_already_issued", "process_still_running"].includes(refuseOutcome.reason), "Active/pending reservation must remain nonclaimable");
 
 			ledger.close();
 		} finally {
@@ -768,12 +771,10 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			});
 
 			let job = ledger.findJobByToolCallId(toolCallId);
-			assert.ok(job, "Job must be admitted upon tool_execution_start");
-			assert.equal(job.state, "queued");
-			assert.equal(job.is_async, 1);
+			assert.equal(job, undefined, "Observational start must not admit before SDK gate");
 
-			// Contract callback 2: tool_call follows start in this synthetic harness.
-			await fireEvent("tool_call", { toolCallId, toolName: "subagent" });
+			// Contract callback 2: awaited tool_call is the admission gate.
+			await fireEvent("tool_call", { toolCallId, toolName: "subagent", input: { task: "Benchmark database recovery", async: true } });
 			job = ledger.findJobByToolCallId(toolCallId);
 			assert.equal(job.state, "running", "Job transitions to running on tool_call");
 
@@ -1201,152 +1202,90 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 		}
 	});
 
-	await t.test("17. Durable transactional resume lineage, takeover reservations & edge cases (P1-1 repair)", async () => {
+	await t.test("17. Exact reservation gates native launch and atomically consumes successor lineage", async () => {
 		const sandbox = createTestSandbox();
 		try {
 			const projectDir = path.join(sandbox.tmpRoot, "active-project");
 			fs.mkdirSync(projectDir, { recursive: true });
+			const transcript = path.join(sandbox.sessionsDir, "worker-original.jsonl");
+			fs.writeFileSync(transcript, '{"type":"session","id":"orig-worker"}\\n');
+			const ledger = new DurableSubagentLedger({ durableDir: sandbox.durableDir, dbPath: sandbox.dbPath, sessionsDir: sandbox.sessionsDir, vendorLocksDir: sandbox.vendorLocksDir, vendorSessionsDir: sandbox.vendorSessionsDir });
+			const makeOwner = (sessionId) => ({ pid: process.pid, ticks: getProcessStartTimeTicks(process.pid), bootId: getSystemBootId(), hostname: os.hostname(), sessionId, sessionFile: path.join(sandbox.tmpRoot, `${sessionId}.jsonl`), cwd: path.resolve(projectDir) });
+			const leaseFor = (o) => `session_${o.pid}_${o.ticks}_${o.sessionId}_${o.cwd}`;
+			const admitDeadJob = (jobId) => {
+				ledger.recordJobAdmission({ jobId, runId: `run_${jobId}`, worktreeCwd: projectDir, spec: { task: "Run critical migrations", profile: "general" }, isAsync: true });
+				ledger.updateJobExecution({ jobId, pid: 999999999, startTimeTicks: 1, bootId: getSystemBootId(), preservedSessionPath: transcript, state: "interrupted" });
+			};
+			admitDeadJob("job_orig_100");
+			const owner = makeOwner("parent-session-A");
+			const leaseOwner = leaseFor(owner);
+			const claim = ledger.claimResumeLease("job_orig_100", leaseOwner, owner, 60000);
+			assert.equal(claim.ok, true, "Verified-dead job gets one reservation");
+			assert.ok(fs.existsSync(claim.identityBoundPath));
+			assert.ok(path.basename(claim.identityBoundPath).startsWith("recovery-job_orig_100-"), "Artifact includes a unique per-claim nonce");
+			const duplicateClaim = ledger.claimResumeLease("job_orig_100", leaseOwner, owner, 60000);
+			assert.equal(duplicateClaim.ok, false);
+			assert.equal(duplicateClaim.reason, "reservation_already_issued");
 
-			const sessionFile = path.join(sandbox.sessionsDir, "worker-original.jsonl");
-			fs.writeFileSync(sessionFile, '{"type":"session","id":"orig-worker"}\n');
-
-			const ledger = new DurableSubagentLedger({
-				durableDir: sandbox.durableDir,
-				dbPath: sandbox.dbPath,
-				sessionsDir: sandbox.sessionsDir,
-				vendorLocksDir: sandbox.vendorLocksDir,
-				vendorSessionsDir: sandbox.vendorSessionsDir,
-			});
-
-			// Setup an interrupted original job
-			const origJobId = "job_orig_100";
-			ledger.recordJobAdmission({
-				jobId: origJobId,
-				runId: "run_orig_100",
-				worktreeCwd: projectDir,
-				spec: { task: "Run critical migrations", profile: "general" },
-				isAsync: true,
-			});
-			ledger.updateJobExecution({
-				jobId: origJobId,
-				pid: 999999, // dead PID
-				startTimeTicks: 1,
-				bootId: getSystemBootId(),
-				preservedSessionPath: sessionFile,
-				state: "interrupted",
-			});
-
-			// 1. Transactional claim creates takeover reservation and identity-bound artifact path
-			const claimantA = "claimant-A-session";
-			const claimResA = ledger.claimResumeLease(origJobId, claimantA, 60000);
-			assert.equal(claimResA.ok, true, "Claimant A must acquire lease");
-			assert.ok(claimResA.reservationId, "Must issue unique takeover reservation ID");
-			assert.ok(fs.existsSync(claimResA.identityBoundPath), "Identity-bound artifact path must exist on disk");
-			assert.ok(claimResA.identityBoundPath.endsWith(`recovery-${origJobId}.jsonl`));
-
-			// 2. Post-claim / pre-launch: foreign claimant B is rejected
-			const claimantB = "claimant-B-session";
-			const claimResB = ledger.claimResumeLease(origJobId, claimantB, 60000);
-			assert.equal(claimResB.ok, false, "Claimant B must be rejected while lease is active");
-			assert.equal(claimResB.reason, "leased_by_another_process");
-
-			// 3. New child launch binds lineage: tool_execution_start correlates args.resume
 			const listeners = new Map();
-			const mockPi = {
-				on(event, handler) {
-					if (!listeners.has(event)) listeners.set(event, []);
-					listeners.get(event).push(handler);
-				},
-				registerCommand() {},
-				registerTool() {},
-			};
-
-			process.env.PI_DURABLE_DIR = sandbox.durableDir;
-			process.env.PI_SUBAGENT_LOCK_DIR = sandbox.vendorLocksDir;
-			process.env.PI_SUBAGENT_SESSION_DIR = sandbox.vendorSessionsDir;
+			const mockPi = { on(event, handler) { if (!listeners.has(event)) listeners.set(event, []); listeners.get(event).push(handler); }, registerCommand() {}, registerTool() {} };
+			Object.assign(process.env, { PI_DURABLE_DIR: sandbox.durableDir, PI_SUBAGENT_LOCK_DIR: sandbox.vendorLocksDir, PI_SUBAGENT_SESSION_DIR: sandbox.vendorSessionsDir });
 			registerDurableSubagentRecovery(mockPi);
+			const contextFor = (currentOwner) => ({ cwd: projectDir, hasUI: false, model: undefined, sessionManager: { getSessionFile: () => currentOwner.sessionFile, getSessionId: () => currentOwner.sessionId } });
+			const fireAs = async (name, event, currentOwner) => { let result; for (const fn of listeners.get(name) || []) result = await fn(event, contextFor(currentOwner)); return result; };
+			const fire = (name, event) => fireAs(name, event, owner);
+			const resumeSpec = { ...buildResumeSpec(claim.job, claim.identityBoundPath), async: true };
+			const suffixLookalike = { ...resumeSpec, resume: path.join(sandbox.tmpRoot, `foreign-${path.basename(claim.identityBoundPath)}`) };
+			await fire("tool_execution_start", { toolCallId: "call-resume-foreign", toolName: "subagent", args: suffixLookalike });
+			const foreignResult = await fire("tool_call", { toolCallId: "call-resume-foreign", toolName: "subagent", input: suffixLookalike });
+			assert.equal(foreignResult.block, true, "Suffix-like foreign resume path is rejected before native execute");
+			assert.equal(ledger.getJob("job_orig_100").state, "resuming", "Rejected foreign args do not consume/supersede reservation");
+			await fire("tool_execution_end", { toolCallId: "call-resume-foreign", toolName: "subagent", isError: true, result: { content: [{ type: "text", text: "blocked" }] } });
+			await fire("tool_execution_start", { toolCallId: "call-resume-1", toolName: "subagent", args: resumeSpec });
+			assert.equal(ledger.getJob("job_orig_100").state, "resuming", "Start observation alone must not supersede predecessor");
+			const hookResult = await fire("tool_call", { toolCallId: "call-resume-1", toolName: "subagent", input: resumeSpec });
+			assert.equal(hookResult, undefined, "One exact, owner-bound reservation is admitted before native execute");
+			const predecessor = ledger.getJob("job_orig_100");
+			assert.equal(predecessor.state, "superseded");
+			const successor = ledger.getJob(predecessor.superseded_by_job_id);
+			assert.equal(successor.resumed_from_job_id, predecessor.job_id);
+			assert.equal(predecessor.reservation_consumed_by_job_id, successor.job_id);
+			assert.equal(successor.state, "queued", "Committed successor is pending/ambiguous until native launch receipt");
 
-			const fireEvent = async (name, event, ctx = {}) => {
-				const list = listeners.get(name) || [];
-				for (const fn of list) {
-					await fn(event, { ...ctx, cwd: projectDir, hasUI: false });
-				}
-			};
+			ledger.db.prepare("UPDATE subagent_jobs SET resume_lease_expires_at=? WHERE job_id=?").run(Date.now()-1000, predecessor.job_id);
+			const staleCallId = "call-resume-stale";
+			await fire("tool_execution_start", { toolCallId: staleCallId, toolName: "subagent", args: resumeSpec });
+			const staleResult = await fire("tool_call", { toolCallId: staleCallId, toolName: "subagent", input: resumeSpec });
+			assert.equal(staleResult.block, true, "Consumed/stale artifact is blocked before native execute");
+			assert.equal(ledger.listAllJobs().filter((j) => j.resumed_from_job_id === predecessor.job_id).length, 1, "At most one successor per reservation");
 
-			const resumeSpec = buildResumeSpec(claimResA.job, claimResA.identityBoundPath);
-			const newToolCallId = "call_resumed_child_001";
-			await fireEvent("tool_execution_start", {
-				toolCallId: newToolCallId,
-				toolName: "subagent",
-				args: { ...resumeSpec, async: true },
-			});
-
-			// Verify lineage binding: original job must now be SUPERSEDED and non-claimable
-			const origJobAfterLaunch = ledger.getJob(origJobId);
-			assert.equal(origJobAfterLaunch.state, "superseded", "Original job must be superseded on resume launch");
-			assert.ok(origJobAfterLaunch.superseded_by_job_id, "Must link to new resumed job");
-
-			// Resumed child job must record resumed_from_job_id
-			const newJob = ledger.getJob(origJobAfterLaunch.superseded_by_job_id);
-			assert.ok(newJob, "New child job must be admitted");
-			assert.equal(newJob.resumed_from_job_id, origJobId, "New job must link back to original job");
-
-			// 4. TTL expiry after child is running: lease expiry MUST NOT permit duplicate takeover!
-			// Simulate passage of 100 seconds (well past the 60s lease TTL)
-			ledger.db.prepare("UPDATE subagent_jobs SET resume_lease_expires_at = ? WHERE job_id = ?").run(Date.now() - 100000, origJobId);
-
-			const claimAfterTTL = ledger.claimResumeLease(origJobId, "claimant-C-after-ttl");
-			assert.equal(claimAfterTTL.ok, false, "Must refuse claim even after lease TTL because job is superseded");
-			assert.equal(claimAfterTTL.reason, "job_superseded", "Must refuse with job_superseded");
-
-			// 5. Foreign claimant attempting uncoordinated duplicate launch is blocked
-			const duplicateBind = ledger.bindResumeLineage({
-				originalJobId: origJobId,
-				newJobId: "job_duplicate_rogue",
-			});
-			assert.equal(duplicateBind.ok, false);
-			assert.equal(duplicateBind.reason, "original_job_already_superseded");
-
-			// 6. Parent crash gap: claim made, but parent crashes before child launches
-			const crashGapJobId = "job_crash_gap_200";
-			ledger.recordJobAdmission({
-				jobId: crashGapJobId,
-				runId: "run_crash_gap_200",
-				worktreeCwd: projectDir,
-				spec: { task: "Data export before crash", profile: "general" },
-				isAsync: true,
-			});
-			ledger.updateJobExecution({
-				jobId: crashGapJobId,
-				pid: 888888, // dead PID
-				startTimeTicks: 1,
-				bootId: getSystemBootId(),
-				preservedSessionPath: sessionFile,
-				state: "interrupted",
-			});
-
-			// Claimant acquires lease
-			const crashClaim = ledger.claimResumeLease(crashGapJobId, "crashed-parent-session");
+			// A second pending launch whose owner/lease expires is retained unknown, never auto-reset.
+			admitDeadJob("job_crash_gap_200");
+			const crashOwner = makeOwner("parent-session-crash");
+			const crashLease = leaseFor(crashOwner);
+			const crashClaim = ledger.claimResumeLease("job_crash_gap_200", crashLease, crashOwner, 60000);
 			assert.equal(crashClaim.ok, true);
-			assert.equal(ledger.getJob(crashGapJobId).state, "resuming");
-			assert.equal(ledger.getJob(crashGapJobId).superseded_by_job_id, null);
+			const crashSpec = { ...buildResumeSpec(crashClaim.job, crashClaim.identityBoundPath), async: true };
+			await fireAs("tool_execution_start", { toolCallId: "call-crashgap", toolName: "subagent", args: crashSpec }, crashOwner);
+			await fireAs("tool_call", { toolCallId: "call-crashgap", toolName: "subagent", input: crashSpec }, crashOwner);
+			ledger.db.prepare("UPDATE subagent_jobs SET resume_lease_expires_at=? WHERE job_id=?").run(Date.now()-1000, "job_crash_gap_200");
+			const report = ledger.reconcileOnStartup();
+			const crashPredecessor = ledger.getJob("job_crash_gap_200");
+			assert.ok(report.unknownWorkers.some((j) => j.job_id === crashPredecessor.superseded_by_job_id), "Committed successor remains pending/unknown after parent death");
+			assert.equal(crashPredecessor.state, "superseded");
+			assert.notEqual(ledger.getJob("job_crash_gap_200").reservation_consumed_by_job_id, null, "Consumed reservation survives parent death/expiry");
+			const retry = ledger.claimResumeLease("job_crash_gap_200", crashLease, crashOwner);
+			assert.equal(retry.ok, false, "Expired/pending reservation is not automatically reissued");
 
-			// Simulate parent process crash -> fresh Pi process restart runs reconcileOnStartup
-			ledger.reconcileOnStartup();
-			const crashJobAfterReconcile = ledger.getJob(crashGapJobId);
-			assert.equal(crashJobAfterReconcile.state, "interrupted", "Unlaunched job in resuming state must reset to interrupted");
-			assert.equal(crashJobAfterReconcile.resume_lease_owner, null, "Dead lease owner must be cleared");
-
-			// Now safely claimable again by a new parent process!
-			const newParentClaim = ledger.claimResumeLease(crashGapJobId, "new-parent-session");
-			assert.equal(newParentClaim.ok, true, "Job is safely claimable after parent crash reconciliation");
-
-			// 7. Failed prelaunch / explicit lease release
-			ledger.releaseResumeLease(crashGapJobId, "new-parent-session");
-			const releasedJob = ledger.getJob(crashGapJobId);
-			assert.equal(releasedJob.state, "interrupted");
-			assert.equal(releasedJob.resume_lease_owner, null);
-
+			// Explicit release is permitted only for a reservation that has not crossed tool_call.
+			admitDeadJob("job_explicit_release");
+			const releaseOwner = makeOwner("parent-session-release");
+			const releaseLease = leaseFor(releaseOwner);
+			const releaseClaim = ledger.claimResumeLease("job_explicit_release", releaseLease, releaseOwner);
+			assert.equal(releaseClaim.ok, true);
+			ledger.releaseResumeLease("job_explicit_release", releaseLease, releaseClaim.reservationId);
+			assert.equal(ledger.getJob("job_explicit_release").state, "interrupted");
+			assert.equal(fs.existsSync(releaseClaim.identityBoundPath), false);
 			ledger.close();
 		} finally {
 			delete process.env.PI_DURABLE_DIR;
@@ -1356,7 +1295,48 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 		}
 	});
 
-	await t.test("18. Startup keeps unknown liveness nonclaimable and preserves pending state", () => {
+	await t.test("18. Cross-process reservation contention admits exactly one claimant", async () => {
+		const sandbox = createTestSandbox();
+		try {
+			const worktree = path.join(sandbox.tmpRoot, "project");
+			fs.mkdirSync(worktree, { recursive: true });
+			const transcript = path.join(sandbox.sessionsDir, "contended.jsonl");
+			fs.writeFileSync(transcript, '{"type":"session","id":"contended"}\\n');
+			const ledger = new DurableSubagentLedger({ durableDir: sandbox.durableDir, dbPath: sandbox.dbPath, sessionsDir: sandbox.sessionsDir, vendorLocksDir: sandbox.vendorLocksDir, vendorSessionsDir: sandbox.vendorSessionsDir });
+			ledger.recordJobAdmission({ jobId: "job_cross_process", runId: "run_cross_process", worktreeCwd: worktree, spec: { task: "contention", profile: "general" }, isAsync: true });
+			ledger.updateJobExecution({ jobId: "job_cross_process", pid: 999999999, startTimeTicks: 1, bootId: getSystemBootId(), preservedSessionPath: transcript, state: "interrupted" });
+			ledger.close();
+
+			const extensionUrl = pathToFileURL(EXTENSION_PATH).href;
+			const childSource = `
+				import os from 'node:os';
+				import path from 'node:path';
+				const mod = await import(${JSON.stringify(extensionUrl)});
+				const config = ${JSON.stringify({ durableDir: sandbox.durableDir, dbPath: sandbox.dbPath, sessionsDir: sandbox.sessionsDir, vendorLocksDir: sandbox.vendorLocksDir, vendorSessionsDir: sandbox.vendorSessionsDir })};
+				const ledger = new mod.DurableSubagentLedger(config);
+				const owner = { pid: process.pid, ticks: mod.getProcessStartTimeTicks(process.pid), bootId: mod.getSystemBootId(), hostname: os.hostname(), sessionId: 'child-' + process.pid, sessionFile: path.join(${JSON.stringify(sandbox.tmpRoot)}, 'child-' + process.pid + '.jsonl'), cwd: ${JSON.stringify(path.resolve(worktree))} };
+				const leaseOwner = 'session_' + owner.pid + '_' + owner.ticks + '_' + owner.sessionId + '_' + owner.cwd;
+				const result = ledger.claimResumeLease('job_cross_process', leaseOwner, owner, 60000);
+				console.log(JSON.stringify({ ok: result.ok, reason: result.reason }));
+				ledger.close();
+			`;
+			const launch = () => new Promise((resolve, reject) => {
+				const child = spawn(process.execPath, ["--input-type=module", "-e", childSource], { env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+				let stdout = ""; let stderr = "";
+				child.stdout.setEncoding("utf8").on("data", (s) => stdout += s);
+				child.stderr.setEncoding("utf8").on("data", (s) => stderr += s);
+				child.on("error", reject);
+				child.on("close", (code) => code === 0 ? resolve(JSON.parse(stdout.trim().split("\\n").at(-1))) : reject(new Error(`claim child exit ${code}: ${stderr}`)));
+			});
+			const outcomes = await Promise.all(Array.from({ length: 4 }, () => launch()));
+			assert.equal(outcomes.filter((o) => o.ok).length, 1, "SQLite transaction admits exactly one independent process");
+			const final = new DurableSubagentLedger({ durableDir: sandbox.durableDir, dbPath: sandbox.dbPath, sessionsDir: sandbox.sessionsDir, vendorLocksDir: sandbox.vendorLocksDir, vendorSessionsDir: sandbox.vendorSessionsDir });
+			assert.equal(final.getJob("job_cross_process").resume_count, 1);
+			final.close();
+		} finally { sandbox.cleanup(); }
+	});
+
+	await t.test("19. Startup keeps unknown liveness nonclaimable and preserves pending state", () => {
 		const sandbox = createTestSandbox();
 		try {
 			const ledger = new DurableSubagentLedger({

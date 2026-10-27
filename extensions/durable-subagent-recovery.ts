@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { DatabaseSync } from "node:sqlite";
 import {
 	chmodSync,
+	constants as fsConstants,
 	copyFileSync,
 	existsSync,
 	lstatSync,
@@ -13,7 +14,8 @@ import {
 	unlinkSync,
 } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { basename, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { basename, join, resolve } from "node:path";
 
 // Typebox resolution: Pi maps 'typebox' at runtime; fallback for standalone test runners
 let Type: any;
@@ -61,6 +63,18 @@ export type ProcessLiveness =
 	| { alive: false; verified: true; reason: "not_found" | "rebooted" | "pid_reused" }
 	| { alive: boolean; verified: false; reason: "permission_denied" | "unverifiable" };
 
+export function isClaimEligible(job: Pick<SubagentJobRecord, "state" | "resumable" | "is_distilled" | "takeover_reservation_id" | "reservation_artifact_path" | "reservation_consumed_by_job_id" | "superseded_by_job_id">, liveness: ProcessLiveness): boolean {
+	return ["interrupted", "orphaned_dead", "timed_out"].includes(job.state)
+		&& job.resumable === 1
+		&& !job.is_distilled
+		&& !job.takeover_reservation_id
+		&& !job.reservation_artifact_path
+		&& !job.reservation_consumed_by_job_id
+		&& !job.superseded_by_job_id
+		&& liveness.verified
+		&& !liveness.alive;
+}
+
 export interface SubagentJobRecord {
 	job_id: string;
 	run_id: string;
@@ -69,7 +83,7 @@ export interface SubagentJobRecord {
 	parent_session_id: string | null;
 	worktree_cwd: string;
 	spec_json: string;
-	state: "queued" | "running" | "completed" | "failed" | "interrupted" | "timed_out" | "orphaned_dead" | "resuming" | "superseded";
+	state: "queued" | "running" | "completed" | "failed" | "interrupted" | "timed_out" | "orphaned_dead" | "resuming" | "superseded" | "unknown";
 	is_async: number; // 0 or 1
 	pid: number | null;
 	start_time_ticks: number | null;
@@ -107,6 +121,15 @@ export interface SubagentJobRecord {
 	takeover_reservation_id: string | null;
 	superseded_by_job_id: string | null;
 	resumed_from_job_id: string | null;
+	reservation_artifact_path: string | null;
+	reservation_owner_pid: number | null;
+	reservation_owner_ticks: number | null;
+	reservation_owner_boot_id: string | null;
+	reservation_owner_hostname: string | null;
+	reservation_owner_session_id: string | null;
+	reservation_owner_session_file: string | null;
+	reservation_owner_cwd: string | null;
+	reservation_consumed_by_job_id: string | null;
 }
 
 export interface LedgerConfig {
@@ -393,7 +416,7 @@ export function buildResumeSpec(job: SubagentJobRecord, preservedSessionPath: st
 		profile: profile as any,
 	};
 
-	if (tools && tools.length > 0) resumeSpec.tools = tools;
+	if (Array.isArray(tools)) resumeSpec.tools = tools;
 	if (model) resumeSpec.model = model;
 	if (thinking) resumeSpec.thinking = thinking;
 	if (agent) resumeSpec.agent = agent;
@@ -454,10 +477,11 @@ export class DurableSubagentLedger {
 			throw new DatabaseCorruptError(`Database corruption detected in ${dbPath}: ${err?.message || String(err)}`, dbPath);
 		}
 
-		// Durability and security settings
+		// Set the lock wait before journal-mode/migration work so competing Pi
+		// processes serialize rather than misreporting normal contention as corruption.
+		db.exec("PRAGMA busy_timeout = 5000;");
 		db.exec("PRAGMA journal_mode = WAL;");
 		db.exec("PRAGMA synchronous = FULL;"); // FULL durability for leases and state
-		db.exec("PRAGMA busy_timeout = 5000;");
 		db.exec("PRAGMA foreign_keys = ON;");
 
 		this.runMigrations(db);
@@ -479,6 +503,9 @@ export class DurableSubagentLedger {
 	private runMigrations(db: DatabaseSync): void {
 		const versionRow = db.prepare("PRAGMA user_version").get() as any;
 		const currentVersion = versionRow ? Number(versionRow.user_version) : 0;
+		if (!Number.isInteger(currentVersion) || currentVersion < 0 || currentVersion > 3) {
+			throw new Error(`Unsupported durable recovery schema version: ${currentVersion}`);
+		}
 
 		if (currentVersion < 1) {
 			db.exec(`
@@ -525,7 +552,16 @@ export class DurableSubagentLedger {
 					unresumable_reason TEXT,
 					takeover_reservation_id TEXT,
 					superseded_by_job_id TEXT,
-					resumed_from_job_id TEXT
+					resumed_from_job_id TEXT,
+					reservation_artifact_path TEXT,
+					reservation_owner_pid INTEGER,
+					reservation_owner_ticks INTEGER,
+					reservation_owner_boot_id TEXT,
+					reservation_owner_hostname TEXT,
+					reservation_owner_session_id TEXT,
+					reservation_owner_session_file TEXT,
+					reservation_owner_cwd TEXT,
+					reservation_consumed_by_job_id TEXT
 				);
 
 				CREATE INDEX IF NOT EXISTS idx_jobs_state ON subagent_jobs(state);
@@ -536,7 +572,8 @@ export class DurableSubagentLedger {
 				CREATE INDEX IF NOT EXISTS idx_jobs_resumable ON subagent_jobs(resumable);
 				CREATE INDEX IF NOT EXISTS idx_jobs_superseded ON subagent_jobs(superseded_by_job_id);
 				CREATE INDEX IF NOT EXISTS idx_jobs_resumed_from ON subagent_jobs(resumed_from_job_id);
-				PRAGMA user_version = 2;
+				CREATE INDEX IF NOT EXISTS idx_jobs_reservation_path ON subagent_jobs(reservation_artifact_path);
+				PRAGMA user_version = 3;
 			`);
 		} else if (currentVersion < 2) {
 			const columns = [
@@ -561,6 +598,25 @@ export class DurableSubagentLedger {
 			db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_superseded ON subagent_jobs(superseded_by_job_id);");
 			db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_resumed_from ON subagent_jobs(resumed_from_job_id);");
 			db.exec("PRAGMA user_version = 2;");
+		}
+
+		if (currentVersion < 3) {
+			const columns = [
+				"reservation_artifact_path TEXT",
+				"reservation_owner_pid INTEGER",
+				"reservation_owner_ticks INTEGER",
+				"reservation_owner_boot_id TEXT",
+				"reservation_owner_hostname TEXT",
+				"reservation_owner_session_id TEXT",
+				"reservation_owner_session_file TEXT",
+				"reservation_owner_cwd TEXT",
+				"reservation_consumed_by_job_id TEXT",
+			];
+			for (const col of columns) {
+				try { db.exec(`ALTER TABLE subagent_jobs ADD COLUMN ${col};`); } catch {}
+			}
+			db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_reservation_path ON subagent_jobs(reservation_artifact_path);");
+			db.exec("PRAGMA user_version = 3;");
 		}
 	}
 
@@ -674,6 +730,10 @@ export class DurableSubagentLedger {
 			params.takeoverReservationId ?? null,
 		);
 		return this.getJob(params.jobId)!;
+	}
+
+	public markJobUnknown(jobId: string, message: string): void {
+		this.db.prepare("UPDATE subagent_jobs SET state='unknown', error_message=?, updated_at=? WHERE job_id=?").run(message, Date.now(), jobId);
 	}
 
 	public updateJobRunId(jobId: string, runId: string): void {
@@ -801,7 +861,7 @@ export class DurableSubagentLedger {
 	}
 
 	public listRecoverableJobs(filter?: { parentSessionFile?: string }): SubagentJobRecord[] {
-		let query = "SELECT * FROM subagent_jobs WHERE state IN ('running', 'interrupted', 'timed_out', 'orphaned_dead', 'resuming') AND superseded_by_job_id IS NULL";
+		let query = "SELECT * FROM subagent_jobs WHERE state IN ('queued', 'running', 'interrupted', 'timed_out', 'orphaned_dead', 'resuming', 'unknown') AND superseded_by_job_id IS NULL";
 		const params: any[] = [];
 		if (filter?.parentSessionFile) {
 			query += " AND parent_session_file = ?";
@@ -816,29 +876,11 @@ export class DurableSubagentLedger {
 	}
 
 	public findJobBySessionPath(sessionPath: string): SubagentJobRecord | undefined {
-		if (!sessionPath) return undefined;
-		const norm = join(sessionPath);
-		// Check exact path match
-		let row = this.db.prepare(
-			"SELECT * FROM subagent_jobs WHERE preserved_session_path = ? OR child_session_path = ?"
-		).get(norm, norm) as SubagentJobRecord | undefined;
-		if (row) return row;
-
-		// Check filename pattern: recovery-(job_[^.]+)\.jsonl
-		const base = basename(norm);
-		const match = base.match(/^recovery-(job_[a-zA-Z0-9_-]+)\.jsonl$/);
-		if (match) {
-			const jobId = match[1];
-			row = this.getJob(jobId);
-			if (row) return row;
-		}
-
-		// Also check suffix match across preserved_session_path or child_session_path
-		row = this.db.prepare(
-			"SELECT * FROM subagent_jobs WHERE preserved_session_path LIKE ? OR child_session_path LIKE ?"
-		).get(`%${base}`, `%${base}`) as SubagentJobRecord | undefined;
-
-		return row;
+		if (!sessionPath || !sessionPath.startsWith("/")) return undefined;
+		const canonical = resolve(sessionPath);
+		return this.db.prepare(
+			"SELECT * FROM subagent_jobs WHERE reservation_artifact_path = ?"
+		).get(canonical) as SubagentJobRecord | undefined;
 	}
 
 	public readVendorRunRecord(runId: string): any | undefined {
@@ -862,177 +904,102 @@ export class DurableSubagentLedger {
 	public claimResumeLease(
 		jobId: string,
 		leaseOwner: string,
+		owner: { pid: number; ticks: number; bootId: string; hostname: string; sessionId: string; sessionFile: string; cwd: string },
 		leaseDurationMs = 60000,
-	): { ok: true; job: SubagentJobRecord; reservationId: string; identityBoundPath: string } | { ok: false; reason: string; supersededBy?: string; job?: SubagentJobRecord } {
+	): { ok: true; job: SubagentJobRecord; reservationId: string; identityBoundPath: string } | { ok: false; reason: string; job?: SubagentJobRecord } {
+		let artifactPath: string | undefined;
+		let committed = false;
 		this.db.exec("BEGIN IMMEDIATE;");
 		try {
-			const row = this.db.prepare("SELECT * FROM subagent_jobs WHERE job_id = ?").get(jobId) as SubagentJobRecord | undefined;
-			if (!row) {
-				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "job_not_found" };
+			const row = this.getJob(jobId);
+			if (!row) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "job_not_found" }; }
+			if (row.superseded_by_job_id || row.state === "superseded") { this.db.exec("ROLLBACK;"); return { ok: false, reason: "job_superseded", job: row }; }
+			const liveness = checkProcessLiveness({ pid: row.pid, startTimeTicks: row.start_time_ticks, bootId: row.boot_id, hostname: row.hostname });
+			if (!liveness.verified) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "process_liveness_unverifiable", job: row }; }
+			if (liveness.alive) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "process_still_running", job: row }; }
+			if (row.resumable !== 1) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "job_not_resumable", job: row }; }
+			if (row.takeover_reservation_id || row.reservation_artifact_path || row.reservation_consumed_by_job_id) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "reservation_already_issued", job: row }; }
+			if (!["interrupted", "orphaned_dead", "timed_out"].includes(row.state)) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "job_state_not_recoverable", job: row }; }
+			const expectedLeaseOwner = `session_${owner.pid}_${owner.ticks}_${owner.sessionId}_${owner.cwd}`;
+			if (leaseOwner !== expectedLeaseOwner || !owner.pid || owner.pid !== process.pid || owner.ticks <= 0 || owner.bootId !== getSystemBootId() || owner.hostname !== hostname() || !owner.sessionId || !owner.sessionFile || resolve(owner.cwd) !== owner.cwd) {
+				this.db.exec("ROLLBACK;"); return { ok: false, reason: "reservation_owner_identity_invalid", job: row };
 			}
-
-			// Refuse resume if already superseded by a new resumed job (P1-1 repair: permanently nonclaimable)
-			if (row.superseded_by_job_id || row.state === "superseded") {
-				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "job_superseded", supersededBy: row.superseded_by_job_id || undefined, job: row };
+			const sourcePath = row.preserved_session_path || row.child_session_path;
+			if (!sourcePath || !sourcePath.startsWith("/") || !existsSync(sourcePath) || lstatSync(sourcePath).isSymbolicLink() || !lstatSync(sourcePath).isFile()) {
+				this.db.exec("ROLLBACK;"); return { ok: false, reason: "session_transcript_missing_or_unsafe", job: row };
 			}
-
-			// Refuse resume if marked unresumable (matrix support: non-pi backend, managed worktree, missing/symlink cwd)
-			if (row.resumable === 0) {
-				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "job_not_resumable", job: row };
-			}
-
-			// Every claim rechecks the complete birth identity, regardless of ledger state.
-			// Missing/legacy PID bindings and unknown liveness are non-claimable.
-			const liveness = checkProcessLiveness({
-				pid: row.pid,
-				startTimeTicks: row.start_time_ticks,
-				bootId: row.boot_id,
-				hostname: row.hostname,
-			});
-			if (!liveness.verified) {
-				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "process_liveness_unverifiable", job: row };
-			}
-			if (liveness.alive) {
-				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "process_still_running", job: row };
-			}
-
-			// Check active lease held by another claimant
+			if (lstatSync(this.config.sessionsDir).isSymbolicLink()) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "unsafe_reservation_namespace", job: row }; }
+			const reservationId = `resv_${randomUUID()}`;
+			const artifactPath = join(this.config.sessionsDir, `recovery-${jobId}-${randomUUID()}.jsonl`);
+			copyFileSync(sourcePath, artifactPath, fsConstants.COPYFILE_EXCL);
+			chmodSync(artifactPath, 0o600);
 			const now = Date.now();
-			if (row.resume_lease_expires_at && row.resume_lease_expires_at > now && row.resume_lease_owner !== leaseOwner) {
-				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "leased_by_another_process", job: row };
-			}
-
-			// Verify session transcript exists before issuing reservation
-			let sessionPath = row.preserved_session_path || row.child_session_path;
-			if (!sessionPath || !existsSync(sessionPath)) {
-				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "session_transcript_missing", job: row };
-			}
-
-			// Create identity-bound artifact path tied directly to args.resume
-			const identityBoundPath = join(this.config.sessionsDir, `recovery-${jobId}.jsonl`);
-			if (sessionPath !== identityBoundPath) {
-				try {
-					if (existsSync(identityBoundPath)) unlinkSync(identityBoundPath);
-					copyFileSync(sessionPath, identityBoundPath);
-					chmodSync(identityBoundPath, 0o600);
-					sessionPath = identityBoundPath;
-				} catch (e: any) {
-					this.db.exec("ROLLBACK;");
-					return { ok: false, reason: `failed_creating_identity_artifact: ${e?.message || String(e)}`, job: row };
-				}
-			}
-
-			const reservationId = `resv_${jobId}_${now}_${Math.random().toString(36).slice(2, 8)}`;
-			const expiresAt = now + leaseDurationMs;
-			this.db
-				.prepare(
-					`
-				UPDATE subagent_jobs
-				SET resume_lease_owner = ?,
-					resume_lease_expires_at = ?,
-					takeover_reservation_id = ?,
-					preserved_session_path = ?,
-					resume_count = resume_count + 1,
-					state = 'resuming',
-					updated_at = ?
-				WHERE job_id = ?
-			`,
-				)
-				.run(leaseOwner, expiresAt, reservationId, sessionPath, now, jobId);
-
+			this.db.prepare(`UPDATE subagent_jobs SET resume_lease_owner=?, resume_lease_expires_at=?, takeover_reservation_id=?, reservation_artifact_path=?, reservation_owner_pid=?, reservation_owner_ticks=?, reservation_owner_boot_id=?, reservation_owner_hostname=?, reservation_owner_session_id=?, reservation_owner_session_file=?, reservation_owner_cwd=?, preserved_session_path=?, resume_count=resume_count+1, state='resuming', updated_at=? WHERE job_id=? AND state=? AND takeover_reservation_id IS NULL`).run(
+				leaseOwner, now + leaseDurationMs, reservationId, artifactPath, owner.pid, owner.ticks, owner.bootId, owner.hostname, owner.sessionId, owner.sessionFile, owner.cwd, artifactPath, now, jobId, row.state,
+			);
+			if (this.getJob(jobId)?.reservation_artifact_path !== artifactPath) throw new Error("reservation compare-and-swap failed");
 			this.db.exec("COMMIT;");
-			const updated = this.getJob(jobId)!;
-			return { ok: true, job: updated, reservationId, identityBoundPath };
+			committed = true;
+			return { ok: true, job: this.getJob(jobId)!, reservationId, identityBoundPath: artifactPath };
 		} catch (err: any) {
-			try {
-				this.db.exec("ROLLBACK;");
-			} catch {}
+			try { this.db.exec("ROLLBACK;"); } catch {}
 			return { ok: false, reason: `transaction_error: ${err?.message || String(err)}` };
+		} finally {
+			if (artifactPath && !committed) try { unlinkSync(artifactPath); } catch {}
 		}
 	}
 
-	public bindResumeLineage(params: {
-		originalJobId: string;
+	public admitResumeSuccessor(params: {
+		originalJob: SubagentJobRecord;
 		newJobId: string;
-		expectedOwner?: string;
-	}): { ok: true; reservationId: string } | { ok: false; reason: string } {
+		runId: string;
+		toolCallId: string;
+		parentSessionFile: string | null;
+		parentSessionId: string | null;
+		worktreeCwd: string;
+		spec: any;
+		isAsync: boolean;
+		owner: { pid: number; ticks: number; bootId: string; hostname: string; sessionId: string; sessionFile: string; cwd: string };
+		reservationId: string;
+	}): { ok: true; successor: SubagentJobRecord } | { ok: false; reason: string } {
 		this.db.exec("BEGIN IMMEDIATE;");
 		try {
-			const orig = this.getJob(params.originalJobId);
-			if (!orig) {
-				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "original_job_not_found" };
+			const orig = this.getJob(params.originalJob.job_id);
+			if (!orig || orig.state !== "resuming" || orig.reservation_consumed_by_job_id || !orig.takeover_reservation_id || !orig.reservation_artifact_path) {
+				this.db.exec("ROLLBACK;"); return { ok: false, reason: "reservation_unavailable_or_consumed" };
 			}
-
-			// If already superseded, duplicate takeover is strictly forbidden!
-			if (orig.superseded_by_job_id || orig.state === "superseded") {
-				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "original_job_already_superseded" };
-			}
-
-			// If active running process exists, duplicate takeover is strictly forbidden!
-			if (orig.pid && orig.state === "running") {
-				const liveness = checkProcessLiveness({
-					pid: orig.pid,
-					startTimeTicks: orig.start_time_ticks,
-					bootId: orig.boot_id,
-					hostname: orig.hostname,
-				});
-				if (liveness.alive) {
-					this.db.exec("ROLLBACK;");
-					return { ok: false, reason: "original_process_still_running" };
-				}
-			}
-
 			const now = Date.now();
-			const resvId = orig.takeover_reservation_id || `resv_${orig.job_id}_${now}_auto`;
-
-			// Supersede original job: original is permanently nonclaimable
-			this.db
-				.prepare(
-					`
-				UPDATE subagent_jobs
-				SET state = 'superseded',
-					superseded_by_job_id = ?,
-					takeover_reservation_id = ?,
-					updated_at = ?
-				WHERE job_id = ?
-			`,
-				)
-				.run(params.newJobId, resvId, now, orig.job_id);
-
+			if (!orig.resume_lease_expires_at || orig.resume_lease_expires_at <= now) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "reservation_expired" }; }
+			if (orig.takeover_reservation_id !== params.reservationId || orig.reservation_artifact_path !== params.spec.resume) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "reservation_artifact_mismatch" }; }
+			const expectedLeaseOwner = `session_${params.owner.pid}_${params.owner.ticks}_${params.owner.sessionId}_${params.owner.cwd}`;
+			if (orig.resume_lease_owner !== expectedLeaseOwner || orig.reservation_owner_pid !== params.owner.pid || orig.reservation_owner_ticks !== params.owner.ticks || orig.reservation_owner_boot_id !== params.owner.bootId || orig.reservation_owner_hostname !== params.owner.hostname || orig.reservation_owner_session_id !== params.owner.sessionId || orig.reservation_owner_session_file !== params.owner.sessionFile || orig.reservation_owner_cwd !== params.owner.cwd) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "reservation_owner_mismatch" }; }
+			const ownerLiveness = checkProcessLiveness({ pid: orig.reservation_owner_pid, startTimeTicks: orig.reservation_owner_ticks, bootId: orig.reservation_owner_boot_id, hostname: orig.reservation_owner_hostname });
+			if (!ownerLiveness.verified || !ownerLiveness.alive) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "reservation_owner_unverified" }; }
+			const targetLiveness = checkProcessLiveness({ pid: orig.pid, startTimeTicks: orig.start_time_ticks, bootId: orig.boot_id, hostname: orig.hostname });
+			if (!targetLiveness.verified || targetLiveness.alive) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "original_process_not_verified_dead" }; }
+			let originalSpec: any;
+			try { originalSpec = JSON.parse(orig.spec_json || "{}"); } catch { this.db.exec("ROLLBACK;"); return { ok: false, reason: "original_execution_spec_invalid" }; }
+			const passedTools = Array.isArray(params.spec.tools) ? JSON.stringify(params.spec.tools) : null;
+			if (params.spec.backend !== "pi" || params.spec.profile !== orig.profile || (params.spec.model ?? null) !== (orig.model ?? null) || (params.spec.thinking ?? null) !== (orig.thinking ?? null) || (params.spec.agent ?? null) !== (orig.agent ?? null) || passedTools !== (orig.tools_json ?? null) || resolve(params.worktreeCwd) !== resolve(orig.worktree_cwd) || (params.spec.system_prompt ?? null) !== (originalSpec.system_prompt ?? null)) {
+				this.db.exec("ROLLBACK;"); return { ok: false, reason: "resume_execution_constraints_mismatch" };
+			}
+			if (!existsSync(orig.reservation_artifact_path) || lstatSync(orig.reservation_artifact_path).isSymbolicLink() || resolve(orig.reservation_artifact_path) !== orig.reservation_artifact_path) { this.db.exec("ROLLBACK;"); return { ok: false, reason: "reservation_artifact_missing_or_unsafe" }; }
+			const successor = this.recordJobAdmission({ jobId: params.newJobId, runId: params.runId, toolCallId: params.toolCallId, parentSessionFile: params.parentSessionFile ?? undefined, parentSessionId: params.parentSessionId ?? undefined, worktreeCwd: params.worktreeCwd, spec: params.spec, isAsync: params.isAsync, resumedFromJobId: orig.job_id, takeoverReservationId: params.reservationId });
+			const consumed = this.db.prepare("UPDATE subagent_jobs SET state='superseded', superseded_by_job_id=?, reservation_consumed_by_job_id=?, updated_at=? WHERE job_id=? AND state='resuming' AND reservation_consumed_by_job_id IS NULL AND takeover_reservation_id=?").run(successor.job_id, successor.job_id, now, orig.job_id, params.reservationId);
+			if (Number(consumed.changes) !== 1) throw new Error("reservation consumption CAS failed");
 			this.db.exec("COMMIT;");
-			return { ok: true, reservationId: resvId };
+			return { ok: true, successor: this.getJob(successor.job_id)! };
 		} catch (err: any) {
-			try {
-				this.db.exec("ROLLBACK;");
-			} catch {}
-			return { ok: false, reason: `bind_error: ${err?.message || String(err)}` };
+			try { this.db.exec("ROLLBACK;"); } catch {}
+			return { ok: false, reason: `successor_admission_failed: ${err?.message || String(err)}` };
 		}
 	}
 
-	public releaseResumeLease(jobId: string, leaseOwner: string): void {
-		const now = Date.now();
-		this.db
-			.prepare(
-				`
-			UPDATE subagent_jobs
-			SET resume_lease_owner = NULL,
-				resume_lease_expires_at = NULL,
-				takeover_reservation_id = NULL,
-				state = CASE WHEN state = 'resuming' AND superseded_by_job_id IS NULL THEN 'interrupted' ELSE state END,
-				updated_at = ?
-			WHERE job_id = ? AND resume_lease_owner = ? AND superseded_by_job_id IS NULL
-		`,
-			)
-			.run(now, jobId, leaseOwner);
+	public releaseResumeLease(jobId: string, leaseOwner: string, reservationId: string): void {
+		const row = this.getJob(jobId);
+		if (!row || row.resume_lease_owner !== leaseOwner || row.takeover_reservation_id !== reservationId || row.reservation_consumed_by_job_id) return;
+		const result = this.db.prepare(`UPDATE subagent_jobs SET resume_lease_owner=NULL, resume_lease_expires_at=NULL, takeover_reservation_id=NULL, reservation_artifact_path=NULL, reservation_owner_pid=NULL, reservation_owner_ticks=NULL, reservation_owner_boot_id=NULL, reservation_owner_hostname=NULL, reservation_owner_session_id=NULL, reservation_owner_session_file=NULL, reservation_owner_cwd=NULL, state='interrupted', updated_at=? WHERE job_id=? AND resume_lease_owner=? AND takeover_reservation_id=? AND reservation_consumed_by_job_id IS NULL`).run(Date.now(), jobId, leaseOwner, reservationId);
+		if (Number(result.changes) === 1 && row.reservation_artifact_path) try { unlinkSync(row.reservation_artifact_path); } catch {}
 	}
 
 	// ---- Non-Destructive Startup Reconciliation (Gap 1 & 4) -------------------
@@ -1052,7 +1019,7 @@ export class DurableSubagentLedger {
 
 		// 2. Scan our ledger's running/resuming jobs
 		const activeJobs = this.db
-			.prepare("SELECT * FROM subagent_jobs WHERE state IN ('running', 'resuming')")
+			.prepare("SELECT * FROM subagent_jobs WHERE state IN ('queued', 'running', 'resuming', 'unknown')")
 			.all() as SubagentJobRecord[];
 
 		const aliveWorkers: SubagentJobRecord[] = [];
@@ -1061,37 +1028,11 @@ export class DurableSubagentLedger {
 		const now = Date.now();
 
 		for (const job of activeJobs) {
-			if (job.state === "resuming") {
-				if (!job.superseded_by_job_id) {
-					// A pending launch has an ambiguous side-effect boundary. Preserve it as
-					// unknown and never release its reservation merely because the parent died.
-					const pendingLiveness = checkProcessLiveness({ pid: job.pid, startTimeTicks: job.start_time_ticks, bootId: job.boot_id, hostname: job.hostname });
-					if (!pendingLiveness.verified) {
-						unknownWorkers.push(job);
-						continue;
-					}
-					if (pendingLiveness.alive) {
-						aliveWorkers.push(job);
-						continue;
-					}
-					// Verified death permits a future explicit recovery; it does not imply task success.
-					this.db
-						.prepare(
-							`
-						UPDATE subagent_jobs
-						SET state = 'interrupted',
-							resume_lease_owner = NULL,
-							resume_lease_expires_at = NULL,
-							takeover_reservation_id = NULL,
-							updated_at = ?
-						WHERE job_id = ?
-					`,
-						)
-						.run(now, job.job_id);
-					job.state = "interrupted";
-					orphanedDead.push(job);
-					continue;
-				}
+			if (job.state === "queued" || job.state === "resuming" || job.state === "unknown") {
+				// A queued/pending launch may already have crossed into native side effects.
+				// Parent death or lease expiry cannot safely release or retry this reservation.
+				unknownWorkers.push(job);
+				continue;
 			}
 
 			// If session file exists in vendor sessions or durable sessions, ensure it is preserved
@@ -1153,7 +1094,7 @@ export class DurableSubagentLedger {
 		}
 
 		// 3. Check for distilled sessions
-		for (const job of [...aliveWorkers, ...orphanedDead]) {
+		for (const job of [...aliveWorkers, ...unknownWorkers, ...orphanedDead]) {
 			if (job.child_session_id && !job.is_distilled) {
 				const distilled = isSessionDistilled(this.config.vendorSessionsDir, job.child_session_id);
 				if (distilled) {
@@ -1217,7 +1158,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 		string,
 		{
 			toolCallId: string;
-			jobId: string;
+			jobId?: string;
 			args: any;
 			parentSessionFile: string | null;
 			parentSessionId: string | null;
@@ -1263,104 +1204,84 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 		}
 	});
 
-	// SDK event order: tool_execution_start BEFORE tool_call.
-	// We key by toolCallId and admit the job upon tool_execution_start.
+	// tool_execution_start is observational only. Admission and recovery authorization
+	// happen in the awaited SDK tool_call hook, before native execute() side effects.
 	pi.on("tool_execution_start", (event, ctx) => {
-		if (event.toolName === "subagent") {
-			try {
-				const args = (event.args || {}) as Record<string, any>;
+		if (event.toolName !== "subagent") return;
+		const args = (event.args || {}) as Record<string, any>;
+		if (args.action) return;
+		activeToolCalls.set(event.toolCallId, {
+			toolCallId: event.toolCallId,
+			args,
+			parentSessionFile: ctx.sessionManager?.getSessionFile?.() || null,
+			parentSessionId: ctx.sessionManager?.getSessionId?.() || null,
+			worktreeCwd: resolve(args.cwd || ctx.cwd),
+			isAsync: Boolean(args.async),
+		});
+	});
 
-				// Skip management actions (status, wait, cancel, steer, diff, apply, discard) and dry-run plan
-				if (args.action) return;
-
-				const inst = getLedger();
-				if (!inst) return;
-
-				const toolCallId = event.toolCallId;
-				const now = Date.now();
-				const jobId = `job_${now}_${Math.random().toString(36).slice(2, 8)}`;
-				const isAsync = Boolean(args.async);
-				const runId = args.id || jobId;
-
-				const parentSessionFile = ctx.sessionManager?.getSessionFile?.() || null;
-				const parentSessionId = ctx.sessionManager?.getSessionId?.() || null;
-				const worktreeCwd = args.cwd || ctx.cwd;
-
-				let resumedFromJobId: string | undefined;
-				let takeoverReservationId: string | undefined;
-
-				// Correlate args.resume with existing job and bind lineage (P1-1 repair)
-				if (args.resume && typeof args.resume === "string") {
-					const origJob = inst.findJobBySessionPath(args.resume);
-					if (origJob) {
-						const bindRes = inst.bindResumeLineage({
-							originalJobId: origJob.job_id,
-							newJobId: jobId,
-						});
-						if (bindRes.ok) {
-							resumedFromJobId = origJob.job_id;
-							takeoverReservationId = bindRes.reservationId;
-						} else {
-							console.warn(`[durable-subagent-recovery] Lineage binding note: ${bindRes.reason}`);
-						}
-					}
-				}
-
-				const effectiveConstraints = {
-					backend: args.backend || "pi",
-					profile: args.profile || "general",
-					model: args.model || (ctx.model?.provider ? `${ctx.model.provider}/${ctx.model.id}` : ctx.model?.id) || undefined,
-					thinking: args.thinking || ctx.thinkingLevel || undefined,
-					tools: Array.isArray(args.tools) ? args.tools : undefined,
-					agent: args.agent || undefined,
-				};
-
-				inst.recordJobAdmission({
-					jobId,
+	pi.on("tool_call", (event, ctx) => {
+		if (event.toolName !== "subagent") return;
+		const entry = activeToolCalls.get(event.toolCallId);
+		const reject = (reason: string) => ({ block: true as const, reason: `[durable-subagent-recovery] ${reason}` });
+		const args = (event.input || {}) as Record<string, any>;
+		if (args.action) { activeToolCalls.delete(event.toolCallId); return; }
+		if (!entry) return reject("missing pre-execution admission context");
+		try {
+			const inst = getLedger();
+			if (!inst) return reject("durable ledger unavailable; refusing subagent side effects");
+			const parentSessionFile = ctx.sessionManager?.getSessionFile?.() || null;
+			const parentSessionId = ctx.sessionManager?.getSessionId?.() || null;
+			const worktreeCwd = resolve(args.cwd || ctx.cwd);
+			const owner = { pid: process.pid, ticks: getProcessStartTimeTicks(process.pid), bootId: getSystemBootId(), hostname: hostname(), sessionId: parentSessionId || "", sessionFile: parentSessionFile || "", cwd: resolve(ctx.cwd) };
+			const jobId = `job_${randomUUID()}`;
+			// Never use model/tool arguments as the ledger correlation key; the native
+			// run ID is installed only after its launch receipt is observed.
+			const runId = jobId;
+			const effectiveConstraints = {
+				backend: args.backend || "pi",
+				profile: args.profile || "general",
+				model: args.model || (ctx.model?.provider ? `${ctx.model.provider}/${ctx.model.id}` : ctx.model?.id) || undefined,
+				thinking: args.thinking || ctx.thinkingLevel || undefined,
+				tools: Array.isArray(args.tools) ? args.tools : undefined,
+				agent: args.agent || undefined,
+			};
+			if (args.resume !== undefined) {
+				if (typeof args.resume !== "string" || !args.resume.startsWith("/")) return reject("resume path must be an exact absolute reservation artifact");
+				const original = inst.findJobBySessionPath(args.resume);
+				if (!original || original.reservation_artifact_path !== args.resume || !original.takeover_reservation_id) return reject("resume path has no exact current reservation");
+				const admitted = inst.admitResumeSuccessor({
+					originalJob: original,
+					newJobId: jobId,
 					runId,
-					toolCallId,
+					toolCallId: event.toolCallId,
 					parentSessionFile,
 					parentSessionId,
 					worktreeCwd,
 					spec: args,
-					isAsync,
-					effectiveConstraints,
-					resumedFromJobId,
-					takeoverReservationId,
+					isAsync: Boolean(args.async),
+					owner,
+					reservationId: original.takeover_reservation_id,
 				});
-
-				activeToolCalls.set(toolCallId, {
-					toolCallId,
-					jobId,
-					args,
-					parentSessionFile,
-					parentSessionId,
-					worktreeCwd,
-					isAsync,
-				});
-			} catch (err) {
-				console.error("[durable-subagent-recovery] tool_execution_start error:", err);
+				if (!admitted.ok) return reject(admitted.reason);
+				entry.jobId = admitted.successor.job_id;
+				entry.args = args;
+				entry.isAsync = Boolean(args.async);
+				entry.worktreeCwd = worktreeCwd;
+				return;
 			}
-		}
-	});
-
-	// Capture tool_call to confirm transition to running
-	pi.on("tool_call", (event, _ctx) => {
-		if (event.toolName === "subagent") {
-			try {
-				const entry = activeToolCalls.get(event.toolCallId);
-				if (entry) {
-					const inst = getLedger();
-					if (inst) {
-						inst.updateJobExecution({
-							jobId: entry.jobId,
-							state: "running",
-						});
-					}
-				}
-			} catch (err) {
-				console.error("[durable-subagent-recovery] tool_call error:", err);
-			}
+			const job = inst.recordJobAdmission({
+				jobId, runId, toolCallId: event.toolCallId, parentSessionFile: parentSessionFile || undefined,
+				parentSessionId: parentSessionId || undefined, worktreeCwd, spec: args, isAsync: Boolean(args.async), effectiveConstraints,
+			});
+			inst.updateJobExecution({ jobId: job.job_id, state: "running" });
+			entry.jobId = job.job_id;
+			entry.args = args;
+			entry.isAsync = Boolean(args.async);
+			entry.worktreeCwd = worktreeCwd;
+		} catch (err: any) {
+			console.error("[durable-subagent-recovery] tool_call admission failed:", err);
+			return reject(`admission failed: ${err?.message || String(err)}`);
 		}
 	});
 
@@ -1377,7 +1298,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 
 				for (const res of results) {
 					if (res.sessionId) {
-						const job = entry ? inst.getJob(entry.jobId) : inst.findJobByToolCallId(event.toolCallId);
+						const job = entry?.jobId ? inst.getJob(entry.jobId) : inst.findJobByToolCallId(event.toolCallId);
 						if (job) {
 							const liveSessionPath = resolveSessionFilePath(inst.config.vendorSessionsDir, res.sessionId);
 							let preservedPath: string | undefined;
@@ -1412,13 +1333,14 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 
 				const entry = activeToolCalls.get(event.toolCallId);
 				if (!entry) return;
+				if (!entry.jobId) { activeToolCalls.delete(event.toolCallId); return; }
 
 				const text = event.result?.content?.[0]?.type === "text" ? event.result.content[0].text : "";
 				// Check for async launch receipt: "Started run <runId>." (UUID, run_*, etc.)
 				const launchMatch = text.match(/Started run\s+([0-9a-fA-F-]+|[a-zA-Z0-9_:-]+)/);
 
-				if (launchMatch || entry.isAsync) {
-					const nativeRunId = launchMatch ? launchMatch[1] : entry.jobId;
+				if (launchMatch) {
+					const nativeRunId = launchMatch[1];
 					inst.updateJobRunId(entry.jobId, nativeRunId);
 					inst.updateJobExecution({
 						jobId: entry.jobId,
@@ -1448,6 +1370,12 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 						});
 					}
 
+					activeToolCalls.delete(event.toolCallId);
+					return;
+				}
+
+				if (event.isError || entry.isAsync) {
+					inst.markJobUnknown(entry.jobId, text || "SDK/native launch outcome is ambiguous; automatic retry is disabled");
 					activeToolCalls.delete(event.toolCallId);
 					return;
 				}
@@ -1509,7 +1437,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 				for (const run of msg.details.runs) {
 					// Correlate by native runId (UUID)
 					const job = inst.findJobByRunId(run.id);
-					if (job && (job.state === "running" || job.state === "queued" || job.state === "resuming")) {
+					if (job && (job.state === "running" || job.state === "queued" || job.state === "resuming" || job.state === "unknown")) {
 						const state = run.state === "completed" || run.state === "partial" ? "completed" : "failed";
 
 						// Preserve transcript if not already preserved
@@ -1561,17 +1489,14 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 			lines.push(`Found ${jobs.length} recoverable/active job(s):\n`);
 
 			for (const job of jobs) {
-				const liveness = job.pid
-					? checkProcessLiveness({
-							pid: job.pid,
-							startTimeTicks: job.start_time_ticks,
-							bootId: job.boot_id,
-						})
-					: { alive: false, reason: "not_found" };
+				const liveness: ProcessLiveness = job.pid
+					? checkProcessLiveness({ pid: job.pid, startTimeTicks: job.start_time_ticks, bootId: job.boot_id, hostname: job.hostname })
+					: { alive: false, verified: false, reason: "unverifiable" };
 
 				const sessionPath = job.preserved_session_path || job.child_session_path;
 				lines.push(`• Job ID: ${job.job_id} (Run: ${job.run_id})`);
-				lines.push(`  State: ${job.state} | Process: ${liveness.alive ? `ALIVE (PID ${job.pid})` : `DEAD (${(liveness as any).reason})`}`);
+				const processStatus = !liveness.verified ? `UNKNOWN (${liveness.reason})` : liveness.alive ? `ALIVE (PID ${job.pid})` : `DEAD (${liveness.reason})`;
+				lines.push(`  State: ${job.state} | Process: ${processStatus}`);
 				lines.push(`  Worktree: ${job.worktree_cwd}`);
 
 				if (job.is_distilled) {
@@ -1584,12 +1509,14 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 				} else if (sessionPath) {
 					lines.push(`  Session File: ${sessionPath}`);
 					lines.push(`  Profile: ${job.profile || "unknown"} | Route: ${job.model || "inherited"}`);
-					try {
-						const cmd = buildResumeCommand(job, sessionPath);
-						lines.push(`  Resume Command:`);
-						lines.push(`    ${cmd}`);
-					} catch (e: any) {
-						lines.push(`  ⚠ Resume spec error: ${e?.message || String(e)}`);
+					if (isClaimEligible(job, liveness)) {
+						try {
+							const cmd = buildResumeCommand(job, sessionPath);
+							lines.push(`  Resume Command:`);
+							lines.push(`    ${cmd}`);
+						} catch (e: any) { lines.push(`  ⚠ Resume spec error: ${e?.message || String(e)}`); }
+					} else {
+						lines.push(`  ⚠ Not claimable: process death or reservation eligibility is not verified.`);
 					}
 				} else {
 					lines.push(`  Session File: (not captured before interruption)`);
@@ -1632,13 +1559,13 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 			if (action === "list") {
 				const jobs = params.includeCompleted ? inst.listAllJobs(20) : inst.listRecoverableJobs();
 				const formatted = jobs.map((j) => {
-					const liveness = j.pid
+					const liveness: ProcessLiveness = j.pid
 						? checkProcessLiveness({ pid: j.pid, startTimeTicks: j.start_time_ticks, bootId: j.boot_id, hostname: j.hostname })
-						: { alive: false, reason: "not_found" };
+						: { alive: false, verified: false, reason: "unverifiable" };
 					const sessionPath = j.preserved_session_path || j.child_session_path;
 					let resumeCommand: string | undefined;
 					let resumeSpec: ResumeSpec | undefined;
-					let canBeResumed = Boolean(j.resumable !== 0 && sessionPath && !j.is_distilled);
+					let canBeResumed = Boolean(sessionPath && isClaimEligible(j, liveness));
 					let reasonUnresumable = j.unresumable_reason;
 
 					if (canBeResumed && sessionPath) {
@@ -1656,6 +1583,8 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 						run_id: j.run_id,
 						state: j.state,
 						alive: liveness.alive,
+						liveness_verified: liveness.verified,
+						liveness_reason: liveness.reason,
 						worktree_cwd: j.worktree_cwd,
 						child_session_path: sessionPath,
 						is_distilled: Boolean(j.is_distilled),
@@ -1689,13 +1618,13 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 						details: { error: "not_found" },
 					};
 				}
-				const liveness = job.pid
+				const liveness: ProcessLiveness = job.pid
 					? checkProcessLiveness({ pid: job.pid, startTimeTicks: job.start_time_ticks, bootId: job.boot_id, hostname: job.hostname })
-					: { alive: false, reason: "not_found" };
+					: { alive: false, verified: false, reason: "unverifiable" };
 				const sessionPath = job.preserved_session_path || job.child_session_path;
 				let resumeCommand: string | undefined;
 				let resumeSpec: ResumeSpec | undefined;
-				let canBeResumed = Boolean(job.resumable !== 0 && sessionPath && !job.is_distilled);
+				let canBeResumed = Boolean(sessionPath && isClaimEligible(job, liveness));
 				let reasonUnresumable = job.unresumable_reason;
 
 				if (canBeResumed && sessionPath) {
@@ -1735,8 +1664,17 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 						details: { error: "missing_job_id" },
 					};
 				}
-				const owner = `session_${toolCtx.cwd}_${process.pid}`;
-				const claim = inst.claimResumeLease(params.job_id, owner);
+				const owner = {
+					pid: process.pid,
+					ticks: getProcessStartTimeTicks(process.pid),
+					bootId: getSystemBootId(),
+					hostname: hostname(),
+					sessionId: toolCtx.sessionManager?.getSessionId?.() || "",
+					sessionFile: toolCtx.sessionManager?.getSessionFile?.() || "",
+					cwd: resolve(toolCtx.cwd),
+				};
+				const leaseOwner = `session_${owner.pid}_${owner.ticks}_${owner.sessionId}_${owner.cwd}`;
+				const claim = inst.claimResumeLease(params.job_id, leaseOwner, owner);
 				if (!claim.ok) {
 					return {
 						content: [{ type: "text", text: JSON.stringify(claim, null, 2) }],
@@ -1750,6 +1688,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 					resume_spec = buildResumeSpec(claim.job, sessionPath);
 					resume_command = buildResumeCommand(claim.job, sessionPath);
 				} catch (e: any) {
+					inst.releaseResumeLease(params.job_id, leaseOwner, claim.reservationId);
 					return {
 						content: [{ type: "text", text: `Error generating resume spec: ${e?.message || String(e)}` }],
 						details: { ok: false, error: e?.message || String(e) },

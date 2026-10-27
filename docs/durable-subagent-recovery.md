@@ -16,7 +16,7 @@ This snapshot is best-effort and does not keep a child alive, prevent native rea
 
 The ledger uses Node's built-in `node:sqlite`, WAL, and `synchronous = FULL`. Process death may only be concluded from verified identity evidence. The identity requires PID, `/proc/<pid>/stat` birth ticks, kernel boot ID, and matching host where available. A missing PID, missing binding, legacy row without birth metadata, unreadable `/proc`, EPERM, unknown host, or ambiguous launch is **unknown**—not dead, not successful, and not claimable. Startup leaves such data intact and reports unknown workers. Every eventual claim path must repeat the full identity check.
 
-Only verified death can make a process-backed job eligible for explicit logical recovery. Transcript presence does not prove process death or task completion. The product's resume reservation and successor-lineage binding is **not yet complete or certified**; commands emitted by earlier revisions are not a safe exactly-once launch protocol. External side effects cannot be made exactly once by the ledger.
+Only verified death can make a process-backed job eligible for explicit logical recovery. Transcript presence does not prove process death or task completion. The current source implements an owner-bound, unique reservation artifact, exact-path lookup, and an awaited `tool_call` admission gate. It atomically consumes that reservation while admitting/linking one successor; expired, duplicate, foreign, or mismatched attempts are blocked. A committed pending successor remains ambiguous after parent death and is not automatically retried. This protocol is **not independently reviewed or actual-SDK certified**. It guarantees at most one ledger admission per reservation, not exactly-once external side effects.
 
 ## Execution constraints and scope
 
@@ -37,6 +37,6 @@ The native Android compatibility patch is staged, version/source-hash-specific, 
 1. Independent review of the exact candidate commit.
 2. Actual Pi 1.4 SDK + native 0.8.0 fixture proving early transcript preservation through actual native lifecycle ordering and actual native resume; no handwritten native events or operator-copy substitution.
 3. Actual native class Android fixture with an owned active process and legacy zero-start record, plus unknown/unreadable, PID-reuse, boot mismatch, signal and pruning guards.
-4. Composed recovery tests for reconciliation → claim, competing processes, reservation TTL, two launch attempts, prelaunch crash ambiguity, and fail-closed foreign/stale/missing reservation rejection.
+4. Composed recovery tests for reconciliation → claim, actual competing processes, reservation TTL, two launch attempts, prelaunch crash ambiguity, and fail-closed foreign/stale/missing reservation rejection. The current unit fixture covers transactional claims and two attempts in-process; multiprocess contention and actual SDK hook ordering remain required.
 5. Installer/doctor exploit regression, preimage SHA and mode checks across first install, idempotent reruns, replacement versions, restore, and crash-safe deployment.
 6. Targeted install/rollback review with an isolated target. No live install/reload/restart is authorized by this document.

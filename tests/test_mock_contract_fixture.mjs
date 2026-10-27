@@ -149,17 +149,15 @@ test("Durable Subagent Recovery Mock Contract & Policy Test Fixture", async (t) 
 				vendorSessionsDir: sandbox.vendorSessionsDir,
 			});
 
-			// Verify job was admitted into SQLite
+			// Admission is intentionally deferred until the awaited SDK tool_call gate.
 			let job = ledger.findJobByToolCallId(toolCallId);
-			assert.ok(job, "Job must be admitted on tool_execution_start");
-			assert.equal(job.state, "queued");
-			assert.equal(job.is_async, 1);
-			assert.equal(job.worktree_cwd, sandbox.worktreeDir);
+			assert.equal(job, undefined, "tool_execution_start is observational only");
 
-			// 3. Pi SDK: tool_call occurs SECOND
+			// 3. Pi SDK: tool_call occurs SECOND and admits before native execute.
 			await fire("tool_call", {
 				toolCallId,
 				toolName: "subagent",
+				input: { task: taskDescription, async: true, cwd: sandbox.worktreeDir },
 			});
 
 			job = ledger.findJobByToolCallId(toolCallId);
@@ -270,6 +268,9 @@ test("Durable Subagent Recovery Mock Contract & Policy Test Fixture", async (t) 
 			ledger.updateJobExecution({
 				jobId: "job_interrupted_001",
 				pid: deadPid,
+				startTimeTicks: 1,
+				bootId: getSystemBootId(),
+				hostname: os.hostname(),
 				preservedSessionPath: preservedPath,
 				state: "interrupted",
 			});
@@ -320,7 +321,7 @@ test("Durable Subagent Recovery Mock Contract & Policy Test Fixture", async (t) 
 				{ action: "claim", job_id: "job_interrupted_001" },
 				null,
 				null,
-				{ cwd: sandbox.worktreeDir },
+				{ cwd: sandbox.worktreeDir, sessionManager: { getSessionId: () => "mock-parent-session", getSessionFile: () => path.join(sandbox.tmpRoot, "mock-parent.jsonl") } },
 			);
 			assert.equal(claimRes.details.ok, true, "Must successfully claim lease for dead process");
 			assert.ok(claimRes.details.resume_spec, "Must include resume spec on lease claim");
@@ -331,10 +332,10 @@ test("Durable Subagent Recovery Mock Contract & Policy Test Fixture", async (t) 
 				{ action: "claim", job_id: "job_interrupted_001" },
 				null,
 				null,
-				{ cwd: "/another/dir" },
+				{ cwd: sandbox.worktreeDir, sessionManager: { getSessionId: () => "mock-parent-session", getSessionFile: () => path.join(sandbox.tmpRoot, "mock-parent.jsonl") } },
 			);
-			assert.equal(secondClaim.details.ok, false, "Second claimant must be rejected");
-			assert.equal(secondClaim.details.reason, "leased_by_another_process");
+			assert.equal(secondClaim.details.ok, false, "Second claim must not issue a duplicate reservation");
+			assert.equal(secondClaim.details.reason, "reservation_already_issued");
 
 			ledger.close();
 		});

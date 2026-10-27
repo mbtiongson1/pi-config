@@ -118,7 +118,7 @@ Experimental subagent recovery work for Pi 1.4.0+ and `@parke.dev/pi-subagent`. 
 - **Zero External Dependencies**: Uses Node 24 built-in `node:sqlite` in WAL mode (`PRAGMA synchronous = FULL`).
 - **Non-Mutating Observer**: Never alters native lock records. It takes an early startup snapshot before native `session_start` maintenance can terminalize/prune a run; this does not promise detached-worker survival.
 - **Fail-Closed Liveness**: Unknown or legacy process identity remains unknown and nonclaimable. Missing PID/ticks/boot identity is not proof of death.
-- **Recovery Status**: Resume admission, reservation consumption, and successor lineage are under repair. Do not use generated commands or install this extension as a safe recovery guarantee until the documented gates pass.
+- **Recovery Status**: The current source has owner-bound exact-path reservations and an awaited pre-execution admission gate with atomic successor lineage. This remains experimental and unreviewed; actual-SDK proof and the other documented gates are still required. Do not treat generated commands as a deployment-ready recovery guarantee.
 - **Commands & Tools**:
   - `/subagent-recover`: Slash command listing recoverable jobs and exact resume commands.
   - `subagent_recover`: Model-callable tool for automated recovery inspection and lease claims.
