@@ -21,13 +21,13 @@ class TestSonnetOpusModelConfig(unittest.TestCase):
                 content = agent_file.read_text(encoding="utf-8")
                 self.assertIn(f"model: {expected_model}", content)
 
-    def test_sonnet_agents_use_anthropic(self):
+    def test_sonnet_agents_configuration(self):
         agents_dir = REPO_ROOT / "agents"
         sonnet_agents = [
-            ("worker-sonnet.md", "anthropic/claude-sonnet-5-5:medium"),
+            ("worker-sonnet.md", "antigravity/claude-sonnet-5-5"),
             ("worker-sonnet-low.md", "anthropic/claude-sonnet-5-5:low"),
             ("worker-sonnet-medium.md", "anthropic/claude-sonnet-5-5:medium"),
-            ("worker-sonnet-high.md", "anthropic/claude-sonnet-5-5:high"),
+            ("worker-sonnet-high.md", "antigravity/claude-sonnet-5-5"),
         ]
         for filename, expected_model in sonnet_agents:
             with self.subTest(agent=filename):

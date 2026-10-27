@@ -1,7 +1,9 @@
 {
   "showExtensions": false,
   "hideAll": false,
-  "blockedKeys": [],
+  "blockedKeys": [
+    "anthropic-budget"
+  ],
   "allowedKeys": [
     "last-message",
     "jev-cost",
