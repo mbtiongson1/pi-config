@@ -12,12 +12,13 @@ Native `@parke.dev/pi-subagent@0.8.0` checked only `process.platform === "linux"
 
 ## Guards & Invariants
 - **Target Package**: `@parke.dev/pi-subagent` version `0.8.0`
-- **Target File**: `src/process-lock.ts`
-- **Stock File SHA-256**: `5cf89e4846ebc3bb59fce14af05ce0cf92be6701456ecef3e4e51746e82b2702`
-- **Patched File SHA-256**: `0125694e4a15b1dac551e8442a536ad32290f42e6ec3c52f31cb48bc31d91c6b`
+- **Target files**: `src/process-lock.ts`, `src/runner.ts`, `src/extension.ts`, `src/types.ts`.
+- Exact before/after SHA-256 values and the patch digest are in `native-0.8.0-source-hashes.json`. Check **every** original file before applying to an isolated copy and every resulting file afterward. Package version alone is insufficient.
+- `runner.ts` captures the child boot identity while it owns the spawned child; `extension.ts` retains it when updating the native run record. A helper that captures only the parent identity is insufficient.
 
 The patch is staged only; it has not been applied to the live installation. It:
 1. Enables Android `/proc/<pid>/stat` field 22 capture and records kernel `boot_id` at identity creation.
 2. Uses a native tri-state liveness helper. Unknown is conservatively busy for native sessions/worktrees and prevents PID signals, lock release, slot pruning, and orphan terminalization.
 3. Guards `killProcessTree` against unverified identities and preserves malformed/legacy lock data for diagnostics.
-4. Does not promise detached-worker survival; it provides fail-closed native lifecycle behavior pending isolated lifecycle tests.
+4. Does not promise detached-worker survival. The isolated component matrix passed 10/10 cases for the repaired source, including real Android birth/boot capture, lease-expired unknown ownership, failed signals, EPERM, missing process metadata and read failures. Corrected fault injection confirms the read failures were actually observed.
+5. `node --test tests/test_native_process_safety.mjs` applies the exact patch only to a private copy and checks source digests. It skips explicitly when the real supported Android installation is unavailable. It uses its own checked synthetic child, not real workers; a successful component test is **not** actual SDK producer/maintenance/GC or deployment acceptance. Broader malformed-record cases and full SDK writer proof remain review requirements.

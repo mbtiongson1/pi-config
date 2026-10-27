@@ -1,5 +1,8 @@
 --- a/src/process-lock.ts
 +++ b/src/process-lock.ts
+@@ -23 +23 @@
+-  /** Process start time in ms since epoch when known; 0 when unknown. */
++  /** Platform birth identity (Linux/Android boot-relative ticks); 0 when unknown. */
 @@ -26,0 +27,2 @@
 +  /** Kernel boot identity captured with this process identity when available. */
 +  bootId?: string;
@@ -16,9 +19,20 @@
 +  }
 +}
 +
-@@ -177,0 +189 @@
-+    bootId: currentBootId(),
-@@ -182,4 +194,9 @@
+@@ -173,6 +184,6 @@
+-  return {
+-    pid: process.pid,
+-    startTime: processStartTime(process.pid),
+-    pgid,
+-    hostname: HOSTNAME,
+-  };
++  return captureProcessIdentity(process.pid, pgid);
++}
++
++/** Call only while holding the actual newly-spawned child handle, not for legacy records. */
++export function captureProcessIdentity(pid: number, pgid?: number): ProcessIdentity {
++  return { pid, pgid, startTime: processStartTime(pid), hostname: HOSTNAME, bootId: currentBootId() };
+@@ -182,4 +193,9 @@
 -  if (!identity.pid || identity.pid <= 0) return false;
 -  // Only check processes on this host; cross-host records are treated as dead so
 -  // local reconcile does not wait forever.
@@ -29,10 +43,10 @@
 +type ProcessIdentityStatus = "alive" | "dead" | "unknown";
 +
 +/** Unknown identities are conservatively retained, never signaled or reaped. */
-+function processIdentityStatus(identity: ProcessIdentity): ProcessIdentityStatus {
-+  if (!identity.pid || identity.pid <= 0) return "unknown";
-+  if (identity.hostname && identity.hostname !== HOSTNAME) return "unknown";
-@@ -189,7 +206,2 @@
++function processIdentityStatus(identity: ProcessIdentity | undefined | null): ProcessIdentityStatus {
++  if (!identity || !Number.isSafeInteger(identity.pid) || identity.pid <= 1) return "unknown";
++  if (!identity.hostname || identity.hostname !== HOSTNAME || HOSTNAME === "unknown") return "unknown";
+@@ -189,14 +205,11 @@
 -    if (error?.code === "ESRCH") return false;
 -    // EPERM means the process exists but we cannot signal it.
 -    if (error?.code === "EPERM") {
@@ -40,15 +54,16 @@
 -    } else {
 -      return false;
 -    }
-+    if (error?.code === "ESRCH") return "dead";
-+    if (error?.code !== "EPERM") return "unknown";
-@@ -197,6 +209,8 @@
+-  }
 -  if (identity.startTime > 0) {
 -    const live = processStartTime(identity.pid);
 -    // If we can read startTime and it differs, this is a recycled PID.
 -    if (live > 0 && live !== identity.startTime) return false;
 -  }
 -  return true;
++    if (error?.code === "ESRCH") return "dead";
++    return "unknown"; // EPERM proves neither signaling authority nor a verified identity.
++  }
 +  // Legacy records lack birth proof; do not retrofit current PID observation.
 +  if (!identity.startTime || identity.startTime <= 0 || !identity.bootId) return "unknown";
 +  const boot = currentBootId();
@@ -57,9 +72,16 @@
 +  const live = processStartTime(identity.pid);
 +  if (!live || live <= 0) return "unknown";
 +  return live === identity.startTime ? "alive" : "dead";
-@@ -206 +220 @@
+@@ -206 +219 @@
 -  if (!identity.pid) return;
-+  if (!identity.pid || processIdentityStatus(identity) !== "alive") return;
++  if (processIdentityStatus(identity) !== "alive") return;
+@@ -217 +230,2 @@
+-    const target = identity.pgid && identity.pgid > 0 ? -identity.pgid : -identity.pid;
++    // Persisted metadata cannot redirect a verified child kill to another group.
++    const target = identity.pgid === identity.pid ? -identity.pid : identity.pid;
+@@ -221 +235 @@
+-      if (error?.code !== "ESRCH") {
++      if (error?.code !== "ESRCH" && error?.code !== "EPERM" && processIdentityStatus(identity) === "alive") {
 @@ -294,7 +308,6 @@
 -          // Unreadable lock file: wait one attempt to reclaim by unlinking.
 -          try {
@@ -74,7 +96,11 @@
 +            process: { pid: 0, startTime: 0, hostname: HOSTNAME },
 +            acquiredAt: 0, leaseExpiresAt: 0, childSessionId,
 +          } };
-@@ -462 +475,6 @@
+@@ -303,0 +317,3 @@
++          if (existing.process?.pid !== process.pid || processIdentityStatus(existing.process) !== "alive") {
++            return { ok: false, conflict: existing };
++          }
+@@ -462 +478,6 @@
 -      if (!data?.process || !this.isAlive(data.process)) continue;
 +      // Malformed ownership is conservatively counted at depth zero.
 +      if (!data?.process) {
@@ -82,17 +108,43 @@
 +        continue;
 +      }
 +      if (!this.isAlive(data.process)) continue;
-@@ -480 +498,2 @@
+@@ -480 +501,2 @@
 -      if (!data?.process || !this.isAlive(data.process)) {
 +      if (!data?.process) continue; // unknown ownership must not be pruned
 +      if (!this.isAlive(data.process)) {
-@@ -597 +616 @@
+@@ -511,23 +533,2 @@
+-    const now = this.now();
+-    const leaseExpiresAt = owner.leaseExpiresAt;
+-    const leaseExpired = leaseExpiresAt > 0 && leaseExpiresAt < now;
+-    const doubleLeaseExpired = leaseExpiresAt > 0 && leaseExpiresAt + this.leaseMs < now;
+-    const sameHost = !owner.process.hostname || owner.process.hostname === HOSTNAME;
+-    // Non-zero startTime lets isAlive distinguish recycled PIDs from the owner.
+-    const identityVerifiable = owner.process.pid > 0 && owner.process.startTime > 0;
+-
+-    if (sameHost) {
+-      if (identityVerifiable) {
+-        // Verifiably dead with start-time match → immediate. Live owner keeps the lock
+-        // even if a renewal ticked late (degrade open on runtime).
+-        return !this.isAlive(owner.process);
+-      }
+-      // Identity unknown: ESRCH means nothing is at that pid → free immediately.
+-      // If something answers kill(0), only the 2× lease window can reclaim.
+-      if (!this.isAlive(owner.process)) return true;
+-      return doubleLeaseExpired;
+-    }
+-
+-    // Cross-host / foreign host: do **not** consult local isAlive (default
+-    // treats other hostnames as dead). Reclaim only after one lease period.
+-    return leaseExpired;
++    // Wall time and repeated expiry never establish death of an unknown owner.
++    return processIdentityStatus(owner?.process) === "dead";
+@@ -597 +598 @@
 -  } = {}): Promise<{ reaped: string[]; stillAlive: string[]; alreadyDead: string[] }> {
 +  } = {}): Promise<{ reaped: string[]; stillAlive: string[]; alreadyDead: string[]; unknown: string[] }> {
-@@ -599 +618 @@
+@@ -599 +600 @@
 -    const report = { reaped: [] as string[], stillAlive: [] as string[], alreadyDead: [] as string[] };
 +    const report = { reaped: [] as string[], stillAlive: [] as string[], alreadyDead: [] as string[], unknown: [] as string[] };
-@@ -611 +630,6 @@
+@@ -611 +612,6 @@
 -      if (!this.isAlive(record.process)) {
 +      const identityStatus = processIdentityStatus(record.process);
 +      if (identityStatus === "unknown") {
@@ -100,7 +152,48 @@
 +        continue;
 +      }
 +      if (identityStatus === "dead") {
-@@ -658 +682,2 @@
+@@ -620 +626 @@
+-      while (this.now() < deadline && this.isAlive(record.process)) {
++      while (this.now() < deadline && processIdentityStatus(record.process) === "alive") {
+@@ -623 +629 @@
+-      if (this.isAlive(record.process)) {
++      if (processIdentityStatus(record.process) === "alive") {
+@@ -626,0 +633,3 @@
++      const finalStatus = processIdentityStatus(record.process);
++      if (finalStatus === "unknown") { report.unknown.push(record.runId); continue; }
++      if (finalStatus === "alive") { report.stillAlive.push(record.runId); continue; }
+@@ -629,2 +638 @@
+-      if (this.isAlive(record.process)) report.stillAlive.push(record.runId);
+-      else report.reaped.push(record.runId);
++      report.reaped.push(record.runId);
+@@ -658 +666,2 @@
 -      if (!owner || !this.isAlive(owner.process)) {
 +      if (!owner) continue; // Preserve malformed/unknown lock files for offline diagnosis.
 +      if (!this.isAlive(owner.process)) {
+--- a/src/runner.ts
++++ b/src/runner.ts
+@@ -18,0 +19 @@
++  captureProcessIdentity,
+@@ -589,8 +590,3 @@
+-        childStartTime = processStartTime(pid);
+-        const identity: ChildProcessIdentity = {
+-          pid,
+-          startTime: childStartTime,
+-          // On POSIX the child is a new process group leader (detached).
+-          pgid: process.platform === "win32" ? undefined : pid,
+-          hostname: os.hostname(),
+-        };
++        // Capture birth+boot while this spawn still owns the unreaped child.
++        const identity: ChildProcessIdentity = captureProcessIdentity(pid, process.platform === "win32" ? undefined : pid);
++        childStartTime = identity.startTime;
+@@ -611,0 +608 @@
++              bootId: identity.bootId,
+--- a/src/extension.ts
++++ b/src/extension.ts
+@@ -1203,0 +1204 @@
++                    bootId: partial.process.bootId,
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -14,0 +15,2 @@
++  /** Kernel boot identity captured during the owned spawn. */
++  bootId?: string;

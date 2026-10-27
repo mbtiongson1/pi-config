@@ -1,0 +1,22 @@
+{
+  "packageVersion": "0.8.0",
+  "files": {
+    "src/process-lock.ts": {
+      "before": "5cf89e4846ebc3bb59fce14af05ce0cf92be6701456ecef3e4e51746e82b2702",
+      "after": "2bfbd47d080bca46964f9d2a0f27dd2889fdf83a530df26f59468c8066fd6e40"
+    },
+    "src/runner.ts": {
+      "before": "09eda89d15ec06ad5bacf8e339b0fb0a0bd005cb798273f81432c04e17a3fa09",
+      "after": "e4ff56600847d120717d2cca93d26a83b8fe57b98121b2a518c1ff74a37f20c1"
+    },
+    "src/extension.ts": {
+      "before": "c999dafb928afd6e75fa3066cba410ec8ab832f705597e0412245cefa44c1e93",
+      "after": "3c2e15229dfafd39d59032be82cf6f172903afbff0fd7388ac3cbd3c78add6da"
+    },
+    "src/types.ts": {
+      "before": "a47f3daa064308a7c0dd422e4c568126290b584a59df24d9a6d3888df4200b4c",
+      "after": "54912b9fce6e2980a9fc2aa0a65b9ca295bed069ddc3adeaff16c5ec2a2539f9"
+    }
+  },
+  "patchSha256": "b8a254fa7d4954013cd3b14a4fa5b82e3b0191957a59ce5d4e8d19587e0f9b3f"
+}
