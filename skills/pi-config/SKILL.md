@@ -19,9 +19,9 @@ Diff?** If an action was specified, proceed without repeating the question.
 1. `git -C "$repo" pull --ff-only origin master`. If local changes block it,
    stop rather than discarding them; a clean worktree can be used to stage a
    reviewed update.
-2. Copy managed `agents/`, `extensions/`, `prompts/`, `themes/`, and `bin/` *contents*
+2. Before bulk copying, run `bash "$repo/bin/ensure-durable-recovery.sh"` from the reviewed checkout. Stop on failure before changing other resources. **Exclude `extensions/durable-subagent-recovery.ts` from every direct copy/delete:** only its journaled installer may replace it, or the first-install preimage is lost. An experimental/unaccepted checkout does not authorize deployment; keep its documented acceptance gates. Copy the other managed `agents/`, `extensions/`, `prompts/`, `themes/`, and `bin/` *contents*
    from the checkout into their peers under `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}`.
-   Use `mkdir -p "$dest/$dir"; cp -R "$repo/$dir/." "$dest/$dir/"`.
+   Stage an explicit copy list that excludes the protected recovery extension; do not use a bulk `cp` that would overwrite it. Other directories may use `mkdir -p "$dest/$dir"; cp -R "$repo/$dir/." "$dest/$dir/"`.
    Do not delete other installed resources.
 3. **Mandatory, non-optional:** `bash "$repo/bin/install-pi-cost.sh"`. It
    verifies pi-config `VERSION=1.10.0` against `skills/pi-cost/SKILL.md` and
@@ -49,7 +49,7 @@ Diff?** If an action was specified, proceed without repeating the question.
 ## Reinstall
 
 1. Pull safely as in Update; stop on conflicting local edits.
-2. Back up any user-owned customization. Wipe only the repo-managed
+2. First run the reviewed journaled recovery installer as in Update, stopping on failure. Preserve its installed extension, deployment intent/manifest, and private `~/.pi/durable/` tree; never wipe or directly copy that extension. Back up any other user-owned customization. Wipe only the other repo-managed
    `agents/`, `extensions/`, `prompts/`, `themes/`, and `bin/` folders, then copy their
    contents from the checkout. Do **not** wipe all user skills or sessions.
 3. Reset `settings.json` and `models.json` from their templates only with the
@@ -80,7 +80,7 @@ Diff?** If an action was specified, proceed without repeating the question.
 
 ## Sync / Diff
 
-- **Sync**: compare installed managed resources with the repo before copying;
+- **Sync**: the recovery extension is managed only through `ensure-durable-recovery.sh` and its `durable-recovery-deploy.py` helper, never by direct copying. Compare installed managed resources with the repo before copying;
   exclude `auth.json`, `models.json`, `trust.json`, and sessions. Commit/push
   only reviewed changes. The managed `skills/pi-cost/` source is mandatory:
   do not replace its catalog with an older/unknown installed copy; check

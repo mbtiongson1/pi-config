@@ -79,7 +79,8 @@ by diffing agents, extensions, prompts, and bin.
 | `extensions/` | Custom pi extensions (including `/statusline` bloat manager and last-message/cache status) |
 | `extensions/durable-subagent-recovery.ts` | Additive SQLite WAL ledger for crash-resilient subagent tracking, session preservation, and non-destructive recovery |
 | `bin/ensure-durable-recovery.sh` | Idempotent setup and validation of private `~/.pi/durable` storage, WAL DB, and extension deployment |
-| `bin/durable-subagent-doctor.sh` | Health checks, process liveness inspection, and safe rollback for durable subagent recovery |
+| `bin/durable-subagent-doctor.sh` | Local storage diagnostics and compare-safe rollback; not an SDK recovery certification |
+| `bin/durable-recovery-deploy.py` | Journaled single-extension deployment preserving first-install bytes/mode or absence; no package/config updates |
 | `extensions/bunny-router.ts` | Registers the stable `bunny/minimax-m3.1-flash` virtual model and resolves its physical route per request |
 | `extensions/bunny-route.mjs` | Pure, testable Bunny routing core (schedule, credit gates, failure diagnostics) |
 | `statusline.json.template` | Default statusline settings (`showExtensions: false` clean default) |

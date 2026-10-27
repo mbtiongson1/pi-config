@@ -66,116 +66,9 @@ fi
 # Mode: --rollback
 # ----------------------------------------------------------------------------
 if [[ "${1:-}" == "--rollback" ]]; then
-  echo "=== Durable Subagent Recovery Rollback ==="
-  installed_ext="$agent_dir/extensions/durable-subagent-recovery.ts"
-  force="${2:-}"
-
-  if [[ ! -e "$installed_ext" && ! -L "$installed_ext" ]]; then
-    echo "Extension was not deployed in $agent_dir/extensions"
-    exit 0
-  fi
-
-  # Reject symlinks to prevent hijacking
-  if [[ -L "$installed_ext" ]]; then
-    echo "! Error: $installed_ext is a symlink; refusing rollback." >&2
-    exit 1
-  fi
-
-  cur_ext_sha=$(calc_sha256 "$installed_ext")
-
-  if [[ -e "$manifest_file" || -L "$manifest_file" ]]; then
-    [[ ! -L "$manifest_file" && -f "$manifest_file" ]] || { echo "! Invalid manifest path; refusing rollback." >&2; exit 1; }
-    manifest_fields=$(node -e '
-      const fs = require("node:fs");
-      const path = require("node:path");
-      const crypto = require("node:crypto");
-      const [file, durableDir] = process.argv.slice(1);
-      const dirStat = fs.lstatSync(durableDir);
-      const manifestStat = fs.lstatSync(file);
-      if (!dirStat.isDirectory() || dirStat.isSymbolicLink() || dirStat.uid !== process.getuid() || (dirStat.mode & 0o777) !== 0o700) throw new Error("unsafe durable directory ownership/mode");
-      if (!manifestStat.isFile() || manifestStat.isSymbolicLink() || manifestStat.uid !== process.getuid() || (manifestStat.mode & 0o777) !== 0o600) throw new Error("unsafe manifest ownership/mode");
-      const m = JSON.parse(fs.readFileSync(file, "utf8"));
-      if (!m || typeof m !== "object" || Array.isArray(m) || (m.schemaVersion !== undefined && m.schemaVersion !== 1)) throw new Error("unsupported manifest schema");
-      const keys = ["installedSha256", "backupPath", "backupSha256", "backupMode", "settingsSha256", "authSha256", "modelsSha256"];
-      const values = keys.map(k => m[k] ?? "");
-      if (values.some(v => typeof v !== "string")) throw new Error("invalid manifest field types");
-      if (values[0] && !/^[a-f0-9]{64}$/.test(values[0])) throw new Error("invalid installed hash");
-      if (values[1] || values[2] || values[3]) {
-        const [backup, sha, mode] = values.slice(1, 4);
-        if (!/^durable-subagent-recovery\.ts\.bak\.[A-Za-z0-9._-]+$/.test(path.basename(backup)) || path.dirname(path.resolve(backup)) !== path.resolve(durableDir)) throw new Error("backup path outside expected private namespace");
-        if (!/^[a-f0-9]{64}$/.test(sha) || !/^[0-7]{3,4}$/.test(mode)) throw new Error("invalid backup hash/mode");
-        const st = fs.lstatSync(backup);
-        if (!st.isFile() || st.isSymbolicLink() || st.uid !== process.getuid() || (st.mode & 0o777).toString(8) !== mode) throw new Error("backup ownership/type/mode mismatch");
-        const actual = crypto.createHash("sha256").update(fs.readFileSync(backup)).digest("hex");
-        if (actual !== sha) throw new Error("backup hash mismatch");
-      }
-      process.stdout.write(values.map(v => v ? Buffer.from(v).toString("base64") : "-").join("\n"));
-    ' "$manifest_file" "$durable_dir") || { echo "! Invalid or tampered deployment manifest; refusing rollback." >&2; exit 1; }
-    mapfile -t manifest_values <<< "$manifest_fields"
-    ((${#manifest_values[@]} == 7)) || { echo "! Invalid deployment manifest fields." >&2; exit 1; }
-    decode_manifest_value() { [[ "$1" == "-" ]] && return 0; printf '%s' "$1" | base64 -d; }
-    manifest_installed_sha=$(decode_manifest_value "${manifest_values[0]}")
-    manifest_backup_path=$(decode_manifest_value "${manifest_values[1]}")
-    manifest_backup_sha=$(decode_manifest_value "${manifest_values[2]}")
-    manifest_backup_mode=$(decode_manifest_value "${manifest_values[3]}")
-    manifest_settings_sha=$(decode_manifest_value "${manifest_values[4]}")
-    manifest_auth_sha=$(decode_manifest_value "${manifest_values[5]}")
-    manifest_models_sha=$(decode_manifest_value "${manifest_values[6]}")
-
-    # Hash conflict check: has user modified the deployed extension?
-    if [[ -n "$manifest_installed_sha" && "$cur_ext_sha" != "$manifest_installed_sha" && "$force" != "--force" ]]; then
-      echo "! Error: Hash conflict detected on $installed_ext" >&2
-      echo "  Current SHA256:  $cur_ext_sha" >&2
-      echo "  Deployed SHA256: $manifest_installed_sha" >&2
-      echo "  The installed extension was modified since deployment." >&2
-      echo "  Refusing rollback to avoid destroying uncommitted changes. Pass --force to override." >&2
-      exit 1
-    fi
-
-    # Check settings/auth/models integrity
-    cur_settings_sha=$(calc_sha256 "$agent_dir/settings.json")
-    cur_auth_sha=$(calc_sha256 "$agent_dir/auth.json")
-    cur_models_sha=$(calc_sha256 "$agent_dir/models.json")
-    if [[ -n "$manifest_settings_sha" && "$cur_settings_sha" != "$manifest_settings_sha" ]]; then
-      echo "Notice: settings.json modified since extension deployment (settings preserved)."
-    fi
-
-    if [[ -n "$manifest_backup_path" ]]; then
-      if [[ -L "$manifest_backup_path" ]]; then
-        echo "! Error: Backup file $manifest_backup_path is a symlink; refusing rollback." >&2
-        exit 1
-      fi
-      if [[ -f "$manifest_backup_path" ]]; then
-        # Verify backup hash before restoring
-        cur_bak_sha=$(calc_sha256 "$manifest_backup_path")
-        if [[ -n "$manifest_backup_sha" && "$cur_bak_sha" != "$manifest_backup_sha" && "$force" != "--force" ]]; then
-          echo "! Error: Backup hash mismatch for $manifest_backup_path" >&2
-          exit 1
-        fi
-        # Atomic restore preserving exact mode
-        tmp_restore="${installed_ext}.tmp.$$"
-        cp "$manifest_backup_path" "$tmp_restore"
-        restore_mode="${manifest_backup_mode:-600}"
-        chmod "$restore_mode" "$tmp_restore"
-        mv -f "$tmp_restore" "$installed_ext"
-        echo "✓ Restored prior extension from: $manifest_backup_path (mode: $restore_mode)"
-      else
-        echo "! Error: Manifest backup is missing; refusing destructive rollback." >&2
-        exit 1
-      fi
-    else
-      rm -f "$installed_ext"
-      echo "✓ Removed extension: $installed_ext (no prior backup)"
-    fi
-    rm -f "$manifest_file"
-  else
-    echo "! Error: Deployment manifest missing; refusing to guess a backup or remove the installed extension." >&2
-    exit 1
-  fi
-
-  echo "✓ Rollback completed successfully."
-  echo "Runtime jobs and database history preserved in $durable_dir (never wiped)."
-  exit 0
+  if [[ "$#" != 1 ]]; then echo "! Rollback accepts no force/override arguments." >&2; exit 1; fi
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  exec python3 "$script_dir/durable-recovery-deploy.py" rollback --agent-dir "$agent_dir" --durable-dir "$durable_dir"
 fi
 
 # ----------------------------------------------------------------------------
@@ -352,7 +245,7 @@ if (mode === "json") {
       console.log("  ! " + issue);
     }
   } else {
-    console.log("All health checks passed. Durable subagent recovery is ready.");
+    console.log("Local storage checks passed. This does not certify SDK recovery, native compatibility, or deployment acceptance.");
   }
 }
 ' "$MODE"

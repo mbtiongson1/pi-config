@@ -31,6 +31,10 @@ The native Android compatibility patch is staged, version/source-hash-specific, 
 - Corrupt DB handling is fail-closed; do not automatically quarantine/reset active safety state. Preserve DB, WAL, and SHM for offline diagnosis.
 - The installer and doctor must treat the deployment manifest as untrusted structured data, validate backup namespace/hash/mode, and never evaluate manifest strings as shell code.
 - `bin/durable-subagent-doctor.sh --rollback` must not change `settings.json`, `auth.json`, `models.json`, package installation, or unrelated user data.
+- Extension deployment now uses `bin/durable-recovery-deploy.py`: strict schema2 metadata, owned regular single-link files, an OS-held deployment lock, compare-safe staged writes, and a fsynced intent before replacing/removing the extension. A pending intent is completed only when both extension and manifest match its recorded before/after fingerprints; unexpected edits stop recovery without guessing.
+- Rollback restores the **first managed installation preimage**, including original absence and mode, across same-version reruns and managed version replacements. It is not an N-minus-one release selector. No force override is accepted. Old experimental schema1 manifests lack the new complete proof and fail closed instead of being silently adopted.
+- Update/Reinstall/Sync must exclude this extension from ordinary bulk copy or deletion and call its installer first. Otherwise those operations would destroy the preimage before the journal can protect it.
+- This intent protects logical recovery after a deployment process dies; fsync calls are not a claim that every filesystem/device power-loss behavior has been tested. Native-package patch deployment remains a separate held review/rollback gate.
 
 ## Verification gates before deployment
 

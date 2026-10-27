@@ -16,6 +16,9 @@ for path in "$durable_dir" "$durable_dir/sessions" "$agent_dir" "$agent_dir/exte
   if [[ -L "$path" ]]; then echo "! Refusing symlink namespace: $path" >&2; exit 1; fi
 done
 
+# Validate deployment state and database aliases BEFORE opening SQLite.
+python3 "$script_dir/durable-recovery-deploy.py" preflight --agent-dir "$agent_dir" --durable-dir "$durable_dir"
+
 # 1. Ensure private directory permissions (chmod 0700)
 mkdir -p "$durable_dir/sessions"
 chmod 0700 "$durable_dir"
@@ -162,132 +165,9 @@ try {
 }
 '
 
-# 3. Deploy extension atomically with deployment-hash manifest
-mkdir -p "$agent_dir/extensions"
-chmod 0700 "$agent_dir/extensions" 2>/dev/null || true
-
-src_ext="$repo_root/extensions/durable-subagent-recovery.ts"
-dest_ext="$agent_dir/extensions/durable-subagent-recovery.ts"
-manifest_file="$durable_dir/deployment-manifest.json"
-
-calc_sha256() {
-  if [[ -f "$1" ]]; then
-    sha256sum "$1" | awk '{print $1}'
-  else
-    echo ""
-  fi
-}
-
-if [[ -f "$src_ext" && "$repo_root" != "$agent_dir" ]]; then
-  src_sha=$(calc_sha256 "$src_ext")
-  dest_sha=$(calc_sha256 "$dest_ext")
-  settings_sha=$(calc_sha256 "$agent_dir/settings.json")
-  auth_sha=$(calc_sha256 "$agent_dir/auth.json")
-  models_sha=$(calc_sha256 "$agent_dir/models.json")
-  backup_file=""
-  backup_sha=""
-  backup_mode=""
-
-  # Reject symlinks at destination to prevent hijacking
-  if [[ -L "$dest_ext" ]]; then
-    echo "! Error: Destination $dest_ext is a symlink. Refusing to overwrite symlink directly." >&2
-    exit 1
-  fi
-
-  if [[ -n "$dest_sha" && "$dest_sha" == "$src_sha" ]]; then
-    echo "✓ Extension already deployed and identical (SHA256: ${src_sha:0:12}…)"
-    # Retain existing verified preimage across same-version reinstall
-    if [[ -e "$manifest_file" || -L "$manifest_file" ]]; then
-      [[ ! -L "$manifest_file" && -f "$manifest_file" ]] || { echo "! Invalid manifest path; refusing reinstall." >&2; exit 1; }
-      manifest_fields=$(node -e '
-        const fs = require("node:fs");
-        const path = require("node:path");
-        const [file, durableDir] = process.argv.slice(1);
-        const dirStat = fs.lstatSync(durableDir);
-        const manifestStat = fs.lstatSync(file);
-        if (!dirStat.isDirectory() || dirStat.isSymbolicLink() || dirStat.uid !== process.getuid() || (dirStat.mode & 0o777) !== 0o700) throw new Error("unsafe durable directory ownership/mode");
-        if (!manifestStat.isFile() || manifestStat.isSymbolicLink() || manifestStat.uid !== process.getuid() || (manifestStat.mode & 0o777) !== 0o600) throw new Error("unsafe manifest ownership/mode");
-        const m = JSON.parse(fs.readFileSync(file, "utf8"));
-        if (!m || typeof m !== "object" || Array.isArray(m) || (m.schemaVersion !== undefined && m.schemaVersion !== 1)) throw new Error("unsupported manifest schema");
-        const values = [m.backupPath ?? "", m.backupSha256 ?? "", m.backupMode ?? ""];
-        if (values.some(v => typeof v !== "string")) throw new Error("invalid manifest field types");
-        if (values.some(Boolean)) {
-          const [backup, sha, mode] = values;
-          if (!/^durable-subagent-recovery\.ts\.bak\.[A-Za-z0-9._-]+$/.test(path.basename(backup)) || path.dirname(path.resolve(backup)) !== path.resolve(durableDir)) throw new Error("backup path outside expected private namespace");
-          if (!/^[a-f0-9]{64}$/.test(sha) || !/^[0-7]{3,4}$/.test(mode)) throw new Error("invalid backup hash/mode");
-          const st = fs.lstatSync(backup);
-          if (!st.isFile() || st.isSymbolicLink() || st.uid !== process.getuid() || (st.mode & 0o777).toString(8) !== mode) throw new Error("backup ownership/type/mode mismatch");
-          const actual = require("node:crypto").createHash("sha256").update(fs.readFileSync(backup)).digest("hex");
-          if (actual !== sha) throw new Error("backup hash mismatch");
-        }
-        process.stdout.write(values.map(v => v ? Buffer.from(v).toString("base64") : "-").join("\n"));
-      ' "$manifest_file" "$durable_dir") || { echo "! Invalid or tampered deployment manifest; refusing reinstall." >&2; exit 1; }
-      mapfile -t manifest_values <<< "$manifest_fields"
-      ((${#manifest_values[@]} == 3)) || { echo "! Invalid deployment manifest fields." >&2; exit 1; }
-      decode_manifest_value() { [[ "$1" == "-" ]] && return 0; printf '%s' "$1" | base64 -d; }
-      backup_file=$(decode_manifest_value "${manifest_values[0]}")
-      backup_sha=$(decode_manifest_value "${manifest_values[1]}")
-      backup_mode=$(decode_manifest_value "${manifest_values[2]}")
-    else
-      # An already-identical file with no deployment metadata may itself be a
-      # user preimage. Retain it byte-for-byte (including mode) for rollback.
-      dest_mode=$(stat -c "%a" "$dest_ext" 2>/dev/null || stat -f "%Lp" "$dest_ext" 2>/dev/null || echo "600")
-      backup_file="$durable_dir/durable-subagent-recovery.ts.bak.$(date +%s).$$"
-      cp "$dest_ext" "${backup_file}.tmp.$$"
-      chmod "$dest_mode" "${backup_file}.tmp.$$"
-      mv -f "${backup_file}.tmp.$$" "$backup_file"
-      backup_sha="$dest_sha"
-      backup_mode="$dest_mode"
-    fi
-  else
-    if [[ -n "$dest_sha" ]]; then
-      # Capture existing destination mode
-      dest_mode=$(stat -c "%a" "$dest_ext" 2>/dev/null || stat -f "%Lp" "$dest_ext" 2>/dev/null || echo "600")
-      # Backup existing destination atomically preserving mode
-      backup_file="$durable_dir/durable-subagent-recovery.ts.bak.$(date +%s).$$"
-      cp "$dest_ext" "${backup_file}.tmp.$$"
-      chmod "$dest_mode" "${backup_file}.tmp.$$"
-      mv -f "${backup_file}.tmp.$$" "$backup_file"
-      backup_sha="$dest_sha"
-      backup_mode="$dest_mode"
-      echo "✓ Backed up existing extension to: $backup_file (SHA256: ${backup_sha:0:12}…, mode: $backup_mode)"
-    fi
-
-    # Atomic copy: write to temp file in destination directory, verify hash, atomic rename
-    tmp_dest="${dest_ext}.tmp.$$"
-    cp "$src_ext" "$tmp_dest"
-    chmod 0600 "$tmp_dest"
-    tmp_sha=$(calc_sha256 "$tmp_dest")
-    if [[ "$tmp_sha" != "$src_sha" ]]; then
-      rm -f "$tmp_dest"
-      echo "! Error: SHA256 mismatch during deployment staging" >&2
-      exit 1
-    fi
-    mv -f "$tmp_dest" "$dest_ext"
-    echo "✓ Atomically deployed extensions/durable-subagent-recovery.ts (SHA256: ${src_sha:0:12}…)"
-  fi
-
-  # Record deployment manifest atomically
-  node -e '
-  const fs = require("node:fs");
-  const manifest = {
-    schemaVersion: 1,
-    deployedAt: Date.now(),
-    sourceSha256: process.argv[1],
-    installedSha256: process.argv[2],
-    backupPath: process.argv[3] || null,
-    backupSha256: process.argv[4] || null,
-    backupMode: process.argv[5] || null,
-    settingsSha256: process.argv[6] || null,
-    authSha256: process.argv[7] || null,
-    modelsSha256: process.argv[8] || null,
-  };
-  const path = process.argv[9];
-  const tmp = path + ".tmp." + process.pid;
-  fs.writeFileSync(tmp, JSON.stringify(manifest, null, 2) + "\n", "utf8");
-  try { fs.chmodSync(tmp, 0o600); } catch {}
-  fs.renameSync(tmp, path);
-  ' "$src_sha" "$src_sha" "$backup_file" "$backup_sha" "$backup_mode" "$settings_sha" "$auth_sha" "$models_sha" "$manifest_file"
-fi
+# 3. Journaled extension deployment, preserving the original first-install state.
+python3 "$script_dir/durable-recovery-deploy.py" install \
+  --agent-dir "$agent_dir" --durable-dir "$durable_dir" \
+  --source "$repo_root/extensions/durable-subagent-recovery.ts"
 
 echo "All durable subagent recovery preferences verified."
