@@ -608,6 +608,8 @@ export class DurableSubagentLedger {
 			tools?: string[];
 			agent?: string;
 		};
+		resumedFromJobId?: string;
+		takeoverReservationId?: string;
 	}): SubagentJobRecord {
 		const now = Date.now();
 		const spec = params.spec || {};
@@ -650,8 +652,9 @@ export class DurableSubagentLedger {
 				job_id, run_id, tool_call_id, parent_session_file, parent_session_id,
 				worktree_cwd, spec_json, state, is_async, created_at, updated_at,
 				backend, profile, model, thinking, tools_json, agent,
-				resumable, unresumable_reason
-			) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				resumable, unresumable_reason,
+				resumed_from_job_id, takeover_reservation_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(job_id) DO UPDATE SET
 				run_id = excluded.run_id,
 				spec_json = excluded.spec_json,
@@ -663,7 +666,9 @@ export class DurableSubagentLedger {
 				tools_json = excluded.tools_json,
 				agent = excluded.agent,
 				resumable = excluded.resumable,
-				unresumable_reason = excluded.unresumable_reason
+				unresumable_reason = excluded.unresumable_reason,
+				resumed_from_job_id = excluded.resumed_from_job_id,
+				takeover_reservation_id = excluded.takeover_reservation_id
 		`);
 		stmt.run(
 			params.jobId,
@@ -684,6 +689,8 @@ export class DurableSubagentLedger {
 			agent,
 			resumable,
 			unresumableReason,
+			params.resumedFromJobId ?? null,
+			params.takeoverReservationId ?? null,
 		);
 		return this.getJob(params.jobId)!;
 	}
@@ -809,7 +816,7 @@ export class DurableSubagentLedger {
 	}
 
 	public listRecoverableJobs(filter?: { parentSessionFile?: string }): SubagentJobRecord[] {
-		let query = "SELECT * FROM subagent_jobs WHERE state IN ('running', 'interrupted', 'timed_out', 'orphaned_dead', 'resuming')";
+		let query = "SELECT * FROM subagent_jobs WHERE state IN ('running', 'interrupted', 'timed_out', 'orphaned_dead', 'resuming') AND superseded_by_job_id IS NULL";
 		const params: any[] = [];
 		if (filter?.parentSessionFile) {
 			query += " AND parent_session_file = ?";
@@ -821,6 +828,32 @@ export class DurableSubagentLedger {
 
 	public listAllJobs(limit = 50): SubagentJobRecord[] {
 		return (this.db.prepare("SELECT * FROM subagent_jobs ORDER BY created_at DESC LIMIT ?").all(limit) as SubagentJobRecord[]) ?? [];
+	}
+
+	public findJobBySessionPath(sessionPath: string): SubagentJobRecord | undefined {
+		if (!sessionPath) return undefined;
+		const norm = join(sessionPath);
+		// Check exact path match
+		let row = this.db.prepare(
+			"SELECT * FROM subagent_jobs WHERE preserved_session_path = ? OR child_session_path = ?"
+		).get(norm, norm) as SubagentJobRecord | undefined;
+		if (row) return row;
+
+		// Check filename pattern: recovery-(job_[^.]+)\.jsonl
+		const base = basename(norm);
+		const match = base.match(/^recovery-(job_[a-zA-Z0-9_-]+)\.jsonl$/);
+		if (match) {
+			const jobId = match[1];
+			row = this.getJob(jobId);
+			if (row) return row;
+		}
+
+		// Also check suffix match across preserved_session_path or child_session_path
+		row = this.db.prepare(
+			"SELECT * FROM subagent_jobs WHERE preserved_session_path LIKE ? OR child_session_path LIKE ?"
+		).get(`%${base}`, `%${base}`) as SubagentJobRecord | undefined;
+
+		return row;
 	}
 
 	public readVendorRunRecord(runId: string): any | undefined {
@@ -839,13 +872,13 @@ export class DurableSubagentLedger {
 		return undefined;
 	}
 
-	// ---- Transactional CAS Claim (Gap 4) --------------------------------------
+	// ---- Transactional CAS Claim & Takeover Reservation (Gap 4 & P1-1) -------
 
 	public claimResumeLease(
 		jobId: string,
 		leaseOwner: string,
 		leaseDurationMs = 60000,
-	): { ok: true; job: SubagentJobRecord } | { ok: false; reason: string; job?: SubagentJobRecord } {
+	): { ok: true; job: SubagentJobRecord; reservationId: string; identityBoundPath: string } | { ok: false; reason: string; supersededBy?: string; job?: SubagentJobRecord } {
 		this.db.exec("BEGIN IMMEDIATE;");
 		try {
 			const row = this.db.prepare("SELECT * FROM subagent_jobs WHERE job_id = ?").get(jobId) as SubagentJobRecord | undefined;
@@ -854,10 +887,16 @@ export class DurableSubagentLedger {
 				return { ok: false, reason: "job_not_found" };
 			}
 
+			// Refuse resume if already superseded by a new resumed job (P1-1 repair: permanently nonclaimable)
+			if (row.superseded_by_job_id || row.state === "superseded") {
+				this.db.exec("ROLLBACK;");
+				return { ok: false, reason: "job_superseded", supersededBy: row.superseded_by_job_id || undefined, job: row };
+			}
+
 			// Refuse resume if marked unresumable (matrix support: non-pi backend, managed worktree, missing/symlink cwd)
 			if (row.resumable === 0) {
 				this.db.exec("ROLLBACK;");
-				return { ok: false, reason: "job_not_resumable", message: row.unresumable_reason || "unsupported configuration", job: row };
+				return { ok: false, reason: "job_not_resumable", job: row };
 			}
 
 			// Refuse resume if process is still running or unverifiable (P1-2)
@@ -877,13 +916,35 @@ export class DurableSubagentLedger {
 				}
 			}
 
-			// Check active lease
+			// Check active lease held by another claimant
 			const now = Date.now();
 			if (row.resume_lease_expires_at && row.resume_lease_expires_at > now && row.resume_lease_owner !== leaseOwner) {
 				this.db.exec("ROLLBACK;");
 				return { ok: false, reason: "leased_by_another_process", job: row };
 			}
 
+			// Verify session transcript exists before issuing reservation
+			let sessionPath = row.preserved_session_path || row.child_session_path;
+			if (!sessionPath || !existsSync(sessionPath)) {
+				this.db.exec("ROLLBACK;");
+				return { ok: false, reason: "session_transcript_missing", job: row };
+			}
+
+			// Create identity-bound artifact path tied directly to args.resume
+			const identityBoundPath = join(this.config.sessionsDir, `recovery-${jobId}.jsonl`);
+			if (sessionPath !== identityBoundPath) {
+				try {
+					if (existsSync(identityBoundPath)) unlinkSync(identityBoundPath);
+					copyFileSync(sessionPath, identityBoundPath);
+					chmodSync(identityBoundPath, 0o600);
+					sessionPath = identityBoundPath;
+				} catch (e: any) {
+					this.db.exec("ROLLBACK;");
+					return { ok: false, reason: `failed_creating_identity_artifact: ${e?.message || String(e)}`, job: row };
+				}
+			}
+
+			const reservationId = `resv_${jobId}_${now}_${Math.random().toString(36).slice(2, 8)}`;
 			const expiresAt = now + leaseDurationMs;
 			this.db
 				.prepare(
@@ -891,22 +952,83 @@ export class DurableSubagentLedger {
 				UPDATE subagent_jobs
 				SET resume_lease_owner = ?,
 					resume_lease_expires_at = ?,
+					takeover_reservation_id = ?,
+					preserved_session_path = ?,
 					resume_count = resume_count + 1,
 					state = 'resuming',
 					updated_at = ?
 				WHERE job_id = ?
 			`,
 				)
-				.run(leaseOwner, expiresAt, now, jobId);
+				.run(leaseOwner, expiresAt, reservationId, sessionPath, now, jobId);
 
 			this.db.exec("COMMIT;");
 			const updated = this.getJob(jobId)!;
-			return { ok: true, job: updated };
+			return { ok: true, job: updated, reservationId, identityBoundPath };
 		} catch (err: any) {
 			try {
 				this.db.exec("ROLLBACK;");
 			} catch {}
 			return { ok: false, reason: `transaction_error: ${err?.message || String(err)}` };
+		}
+	}
+
+	public bindResumeLineage(params: {
+		originalJobId: string;
+		newJobId: string;
+		expectedOwner?: string;
+	}): { ok: true; reservationId: string } | { ok: false; reason: string } {
+		this.db.exec("BEGIN IMMEDIATE;");
+		try {
+			const orig = this.getJob(params.originalJobId);
+			if (!orig) {
+				this.db.exec("ROLLBACK;");
+				return { ok: false, reason: "original_job_not_found" };
+			}
+
+			// If already superseded, duplicate takeover is strictly forbidden!
+			if (orig.superseded_by_job_id || orig.state === "superseded") {
+				this.db.exec("ROLLBACK;");
+				return { ok: false, reason: "original_job_already_superseded" };
+			}
+
+			// If active running process exists, duplicate takeover is strictly forbidden!
+			if (orig.pid && orig.state === "running") {
+				const liveness = checkProcessLiveness({
+					pid: orig.pid,
+					startTimeTicks: orig.start_time_ticks,
+					bootId: orig.boot_id,
+				});
+				if (liveness.alive) {
+					this.db.exec("ROLLBACK;");
+					return { ok: false, reason: "original_process_still_running" };
+				}
+			}
+
+			const now = Date.now();
+			const resvId = orig.takeover_reservation_id || `resv_${orig.job_id}_${now}_auto`;
+
+			// Supersede original job: original is permanently nonclaimable
+			this.db
+				.prepare(
+					`
+				UPDATE subagent_jobs
+				SET state = 'superseded',
+					superseded_by_job_id = ?,
+					takeover_reservation_id = ?,
+					updated_at = ?
+				WHERE job_id = ?
+			`,
+				)
+				.run(params.newJobId, resvId, now, orig.job_id);
+
+			this.db.exec("COMMIT;");
+			return { ok: true, reservationId: resvId };
+		} catch (err: any) {
+			try {
+				this.db.exec("ROLLBACK;");
+			} catch {}
+			return { ok: false, reason: `bind_error: ${err?.message || String(err)}` };
 		}
 	}
 
@@ -918,8 +1040,10 @@ export class DurableSubagentLedger {
 			UPDATE subagent_jobs
 			SET resume_lease_owner = NULL,
 				resume_lease_expires_at = NULL,
+				takeover_reservation_id = NULL,
+				state = CASE WHEN state = 'resuming' AND superseded_by_job_id IS NULL THEN 'interrupted' ELSE state END,
 				updated_at = ?
-			WHERE job_id = ? AND resume_lease_owner = ?
+			WHERE job_id = ? AND resume_lease_owner = ? AND superseded_by_job_id IS NULL
 		`,
 			)
 			.run(now, jobId, leaseOwner);
@@ -950,6 +1074,29 @@ export class DurableSubagentLedger {
 		const now = Date.now();
 
 		for (const job of activeJobs) {
+			if (job.state === "resuming") {
+				if (!job.superseded_by_job_id) {
+					// Parent crashed after claim but before new child was launched (parent crash gap).
+					// Reset to interrupted so it can be safely recovered in the new parent session.
+					this.db
+						.prepare(
+							`
+						UPDATE subagent_jobs
+						SET state = 'interrupted',
+							resume_lease_owner = NULL,
+							resume_lease_expires_at = NULL,
+							takeover_reservation_id = NULL,
+							updated_at = ?
+						WHERE job_id = ?
+					`,
+						)
+						.run(now, job.job_id);
+					job.state = "interrupted";
+					orphanedDead.push(job);
+					continue;
+				}
+			}
+
 			// If session file exists in vendor sessions or durable sessions, ensure it is preserved
 			let sessionPath = job.preserved_session_path;
 			if (!sessionPath && job.child_session_id) {
@@ -1121,6 +1268,26 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 				const parentSessionId = ctx.sessionManager?.getSessionId?.() || null;
 				const worktreeCwd = args.cwd || ctx.cwd;
 
+				let resumedFromJobId: string | undefined;
+				let takeoverReservationId: string | undefined;
+
+				// Correlate args.resume with existing job and bind lineage (P1-1 repair)
+				if (args.resume && typeof args.resume === "string") {
+					const origJob = inst.findJobBySessionPath(args.resume);
+					if (origJob) {
+						const bindRes = inst.bindResumeLineage({
+							originalJobId: origJob.job_id,
+							newJobId: jobId,
+						});
+						if (bindRes.ok) {
+							resumedFromJobId = origJob.job_id;
+							takeoverReservationId = bindRes.reservationId;
+						} else {
+							console.warn(`[durable-subagent-recovery] Lineage binding note: ${bindRes.reason}`);
+						}
+					}
+				}
+
 				const effectiveConstraints = {
 					backend: args.backend || "pi",
 					profile: args.profile || "general",
@@ -1140,6 +1307,8 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 					spec: args,
 					isAsync,
 					effectiveConstraints,
+					resumedFromJobId,
+					takeoverReservationId,
 				});
 
 				activeToolCalls.set(toolCallId, {
@@ -1555,8 +1724,17 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 					};
 				}
 				const sessionPath = claim.job.preserved_session_path || claim.job.child_session_path || "";
-				const resume_command = sessionPath && !claim.job.is_distilled ? buildResumeCommand(claim.job, sessionPath) : undefined;
-				const resume_spec = sessionPath && !claim.job.is_distilled ? buildResumeSpec(claim.job, sessionPath) : undefined;
+				let resume_command: string | undefined;
+				let resume_spec: ResumeSpec | undefined;
+				try {
+					resume_spec = buildResumeSpec(claim.job, sessionPath);
+					resume_command = buildResumeCommand(claim.job, sessionPath);
+				} catch (e: any) {
+					return {
+						content: [{ type: "text", text: `Error generating resume spec: ${e?.message || String(e)}` }],
+						details: { ok: false, error: e?.message || String(e) },
+					};
+				}
 				return {
 					content: [{ type: "text", text: JSON.stringify({ ...claim, resume_command, resume_spec }, null, 2) }],
 					details: { ...claim, resume_command, resume_spec },

@@ -49,10 +49,17 @@ class TestDurableRecoveryStructure(unittest.TestCase):
         self.assertIn("preserveSessionFile", source)
         self.assertIn("preserved_session_path", source)
 
-        # CAS / atomic lease claim (Gap 4)
+        # CAS / atomic lease claim and lineage takeover (Gap 4 & P1-1)
         self.assertIn("claimResumeLease", source)
         self.assertIn("BEGIN IMMEDIATE;", source)
         self.assertIn("leased_by_another_process", source)
+        self.assertIn("bindResumeLineage", source)
+        self.assertIn("takeover_reservation_id", source)
+        self.assertIn("superseded_by_job_id", source)
+
+        # Policy validation and fail-closed corrupt handling (P0-1 & P1-3)
+        self.assertIn("buildResumeSpec", source)
+        self.assertIn("DatabaseCorruptError", source)
 
         # Commands and tools
         self.assertIn('registerCommand("subagent-recover"', source)
