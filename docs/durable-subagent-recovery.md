@@ -1,73 +1,42 @@
-# Durable Subagent Recovery Architecture
+# Durable Subagent Recovery — Experimental Safety Work
 
-## Overview
-Durable Subagent Recovery is an additive, crash-resilient job ledger and session preservation subsystem for `@parke.dev/pi-subagent` in Pi 1.4.0+.
+## Status
 
-It uses Node.js 24's native `node:sqlite` module (zero npm native dependencies) in Write-Ahead Logging (`WAL`) mode with `synchronous = FULL` to guarantee durability against hard OS terminations (Android Low Memory Killer, Termux kill -9, power loss).
+**Not deployment-ready.** This extension is an additive observer/ledger experiment for Pi 1.4.0 and `@parke.dev/pi-subagent@0.8.0`. Do not install or rely on it for automatic recovery until the independent source review and positive actual-SDK recovery gates pass. A mock callback test or manual native resume does not meet that gate.
 
----
+The live extension is not modified by these source changes. The staged native compatibility patch is never automatically applied.
 
-## The Core Design Gaps & Solutions
+## Native lifecycle ordering and transcript preservation
 
-### 1. Vendor Orphan Lifecycle & Distillation Protection
-- **The Problem**: `@parke.dev/pi-subagent`'s `scheduleMaintenance` runs `reconcileOrphans` on session startup. Active disconnected processes are reaped on parent restart, and `sweepSessionsLifecycle` converts non-busy sessions to `.digest.json`, deleting `.jsonl` transcripts. Mutating native locks to `terminal` strips child sessions and worktrees from `busy` and `liveWorktrees` sets, accelerating distillation.
-- **The Solution (Non-Mutating Observer)**:
-  1. **Non-Mutating Observer**: On startup, our extension scans vendor locks without modifying vendor files or claiming live process survival across restarts.
-  2. **Session Preservation (`preserveSessionFile`)**: Active child `.jsonl` files are immediately preserved in `~/.pi/durable/sessions/<id>.jsonl` with `0600` permissions before native maintenance runs. Even after native distillation purges the vendor transcripts, the preserved transcript is intact and ready for logical resumption.
+The native package's `session_start` maintenance may reconcile/terminalize run records before user extension `session_start` handlers execute. Therefore the observer takes a synchronous, read-only snapshot of sessions referenced by `running` native records during its factory registration, before session events. Startup reconciliation retries preservation where possible. It never changes a native record to `terminal` to bypass native lifecycle logic, because native `busy` and `liveWorktrees` sets depend on records remaining `running`.
 
-### 2. Async Launch Receipt vs. Worker Completion
-- **The Problem**: For `async: true` subagent runs, the initial `tool_execution_end` represents only the launch receipt (`"Started run <id>"`), not actual subagent completion. Marking a job complete on initial tool return corrupts status tracking.
-- **The Solution**: Async tasks remain in `state: 'running'` after the launch receipt. Completion is only recorded when native completion messages arrive (`customType: 'subagent_completion'`), when `action: 'wait'` concludes, or when process termination is verified.
+This snapshot is best-effort and does not keep a child alive, prevent native reaping, prove completion, or guarantee a consistent snapshot of a concurrently-written transcript. It is not automatic replay. Preserve hash/mode and session-format validation in any future strengthening.
 
-### 3. Absolute Path Resumption Across CWDs
-- **The Problem**: Resuming by raw UUID fails when Pi's current working directory differs from the subagent's worktree CWD, because Pi's `findLocalSessionByExactId` checks `sessionCwdMatches`. Cross-directory matching may also trigger interactive fork prompts.
-- **The Solution**: The recovery subsystem resolves and indexes the exact **absolute file path** to the session `.jsonl`. Resuming with `subagent({ resume: "<absolute_path_to_jsonl>", cwd: "<worktree_cwd>" })` bypasses CWD mismatch checks and opens the exact session directly.
+## Liveness and recovery safety
 
-### 4. Process Identity & PID Reuse Safety
-- **Linux Kernel Verification**: Process identity is verified using three factors:
-  1. `pid`: Process ID.
-  2. `startTimeTicks`: Field 22 from `/proc/<pid>/stat` (ticks since boot).
-  3. `bootId`: System boot UUID from `/proc/sys/kernel/random/boot_id`.
-- **Invariants**:
-  - If `bootId` changed: System rebooted; process is verifiably dead.
-  - If `startTimeTicks` differs: PID has been recycled by another process. The old job is dead; foreign processes are **never** killed.
-  - If permission denied (`EACCES`/`EPERM`): Status is treated as `unverifiable` and **never** marked dead or killed.
+The ledger uses Node's built-in `node:sqlite`, WAL, and `synchronous = FULL`. Process death may only be concluded from verified identity evidence. The identity requires PID, `/proc/<pid>/stat` birth ticks, kernel boot ID, and matching host where available. A missing PID, missing binding, legacy row without birth metadata, unreadable `/proc`, EPERM, unknown host, or ambiguous launch is **unknown**—not dead, not successful, and not claimable. Startup leaves such data intact and reports unknown workers. Every eventual claim path must repeat the full identity check.
 
-### 5. Concurrent Recovery Deduping (Atomic CAS Lease)
-- A job cannot be resumed twice concurrently.
-- `claimResumeLease` uses atomic SQLite `BEGIN IMMEDIATE` transactions to acquire an exclusive recovery lease.
-- If a job is currently alive and active, resume requests are refused with `process_still_running`.
+Only verified death can make a process-backed job eligible for explicit logical recovery. Transcript presence does not prove process death or task completion. The product's resume reservation and successor-lineage binding is **not yet complete or certified**; commands emitted by earlier revisions are not a safe exactly-once launch protocol. External side effects cannot be made exactly once by the ledger.
 
----
+## Execution constraints and scope
 
-## File System & Security Layout
+The resume spec must preserve the original requested and effective backend, profile, model, thinking level, agent, tools, prompt, and cwd. Legacy rows that cannot prove the original constraints fail closed rather than inheriting broader defaults. The currently supported logical transcript path is Pi backend only; managed temporary worktrees and missing or symlinked cwd are unsupported. Do not silently widen to defaults.
 
-- `~/.pi/durable/` — Permissions `0700`
-- `~/.pi/durable/sessions/` — Permissions `0700`
-- `~/.pi/durable/subagents.sqlite` — Permissions `0600` (WAL and SHM files also `0600`)
-- **Corrupt DB Fail-Closed Integrity**: If SQLite integrity check (`PRAGMA quick_check`) fails, ordinary initialization strictly fails closed with `DatabaseCorruptError`, leaving existing DB, WAL, and SHM files completely untouched to prevent silent state or lease loss. Automated destructive resets are prohibited; an explicit offline manual diagnostic procedure is provided.
+The native Android compatibility patch is staged, version/source-hash-specific, and unapplied. It adds actual Android `/proc` birth-time capture and boot identity; it distinguishes verified alive/dead/unknown, never signals unknown/reused PIDs, and preserves unknown lock/slot data. The target stock source hash is `5cf89e4846ebc3bb59fce14af05ce0cf92be6701456ecef3e4e51746e82b2702`; see `patches/README.md` for the staged patch hash and isolated lifecycle test. It does not promise detached-worker survival.
 
----
+## Storage and tooling
 
-## Tooling & Commands
+- `~/.pi/durable/` and `sessions/`: mode `0700`.
+- SQLite DB/WAL/SHM: mode `0600` where created by the extension.
+- Corrupt DB handling is fail-closed; do not automatically quarantine/reset active safety state. Preserve DB, WAL, and SHM for offline diagnosis.
+- The installer and doctor must treat the deployment manifest as untrusted structured data, validate backup namespace/hash/mode, and never evaluate manifest strings as shell code.
+- `bin/durable-subagent-doctor.sh --rollback` must not change `settings.json`, `auth.json`, `models.json`, package installation, or unrelated user data.
 
-- **Slash Command**: `/subagent-recover`
-  - Lists recoverable, active, and interrupted jobs with absolute paths and exact resumption commands.
-- **Model Tool**: `subagent_recover`
-  - Allows the LLM or automation scripts to `list`, inspect `status`, or `claim` recovery leases.
-- **CLI Doctor**: `bin/durable-subagent-doctor.sh`
-  - Inspects environment, permissions, database integrity, and reports job counts.
-  - Supports `--json` for automation and `--rollback` for safe deactivation.
+## Verification gates before deployment
 
----
-
-## Honest Scope & Support Matrix
-
-1. **Permanent vs Temporary Worktrees**:
-   - Subagents launched with `isolation: "worktree"` operate in ephemeral checkouts under `.pi/subagent-worktrees/` that native subagent reaps on parent restart.
-   - Durable recovery supports permanent isolated or shared worktrees (e.g., permanent git worktrees or repo directories). Managed temporary worktrees cannot guarantee uncommitted WIP survival across restarts and are marked unresumable at admission.
-2. **Backend Matrix**:
-   - Resumption via preserved JSONL session transcripts is supported exclusively for the `pi` backend (`pi --session <path>`).
-   - Non-Pi backends (`claude`, `codex`) use different, non-interchangeable session models and are explicitly rejected for session transcript resumption.
-3. **Execution Constraints**:
-   - All requested and effective execution constraints (`profile`, `tools`, `backend: "pi"`, `model`, `thinking`, `agent`, `cwd`) are persisted at admission and pinned on generated resume specs, preventing profile escalation (such as `explore -> general`) or routing loss.
+1. Independent review of the exact candidate commit.
+2. Actual Pi 1.4 SDK + native 0.8.0 fixture proving early transcript preservation through actual native lifecycle ordering and actual native resume; no handwritten native events or operator-copy substitution.
+3. Actual native class Android fixture with an owned active process and legacy zero-start record, plus unknown/unreadable, PID-reuse, boot mismatch, signal and pruning guards.
+4. Composed recovery tests for reconciliation → claim, competing processes, reservation TTL, two launch attempts, prelaunch crash ambiguity, and fail-closed foreign/stale/missing reservation rejection.
+5. Installer/doctor exploit regression, preimage SHA and mode checks across first install, idempotent reruns, replacement versions, restore, and crash-safe deployment.
+6. Targeted install/rollback review with an isolated target. No live install/reload/restart is authorized by this document.

@@ -1,33 +1,106 @@
 --- a/src/process-lock.ts
 +++ b/src/process-lock.ts
-@@ -126,7 +126,7 @@
-  * for liveness, but PID-reuse protection is weaker).
-  */
- export function processStartTime(pid: number): number {
+@@ -26,0 +27,2 @@
++  /** Kernel boot identity captured with this process identity when available. */
++  bootId?: string;
+@@ -129 +131 @@
 -  if (process.platform === "linux") {
 +  if (process.platform === "linux" || process.platform === "android") {
-     try {
-       const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-       // Proc name may contain spaces/parens; starttime is the 22nd field after the closing ')'.
-@@ -198,12 +198,21 @@
-     const live = processStartTime(identity.pid);
-     // If we can read startTime and it differs, this is a recycled PID.
-     if (live > 0 && live !== identity.startTime) return false;
-+  } else {
-+    // If identity has no verified birth startTime (startTime <= 0) but live platform
-+    // supports /proc inspection and returns a valid live start time, this record
-+    // lacks trusted birth identity; treat as unverifiable rather than blindly assuming alive.
-+    const live = processStartTime(identity.pid);
-+    if (live > 0) return false;
-   }
-   return true;
- }
-
- export function killProcessTree(identity: ProcessIdentity, signal: NodeJS.Signals = "SIGTERM"): void {
-   if (!identity.pid) return;
-+  // Never signal a PID if its birth identity is unverified (startTime <= 0) while
-+  // the platform can inspect process start times, preventing foreign/reused PID kills.
-+  if (identity.startTime <= 0 && processStartTime(identity.pid) > 0) return;
-   try {
-     if (process.platform === "win32") {
-       // Use taskkill for the process tree.
+@@ -160,0 +163,9 @@
++function currentBootId(): string | undefined {
++  try {
++    const value = fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
++    return value || undefined;
++  } catch {
++    return undefined;
++  }
++}
++
+@@ -177,0 +189 @@
++    bootId: currentBootId(),
+@@ -182,4 +194,9 @@
+-  if (!identity.pid || identity.pid <= 0) return false;
+-  // Only check processes on this host; cross-host records are treated as dead so
+-  // local reconcile does not wait forever.
+-  if (identity.hostname && identity.hostname !== HOSTNAME) return false;
++  return processIdentityStatus(identity) !== "dead";
++}
++
++type ProcessIdentityStatus = "alive" | "dead" | "unknown";
++
++/** Unknown identities are conservatively retained, never signaled or reaped. */
++function processIdentityStatus(identity: ProcessIdentity): ProcessIdentityStatus {
++  if (!identity.pid || identity.pid <= 0) return "unknown";
++  if (identity.hostname && identity.hostname !== HOSTNAME) return "unknown";
+@@ -189,7 +206,2 @@
+-    if (error?.code === "ESRCH") return false;
+-    // EPERM means the process exists but we cannot signal it.
+-    if (error?.code === "EPERM") {
+-      // Still verify startTime if known.
+-    } else {
+-      return false;
+-    }
++    if (error?.code === "ESRCH") return "dead";
++    if (error?.code !== "EPERM") return "unknown";
+@@ -197,6 +209,8 @@
+-  if (identity.startTime > 0) {
+-    const live = processStartTime(identity.pid);
+-    // If we can read startTime and it differs, this is a recycled PID.
+-    if (live > 0 && live !== identity.startTime) return false;
+-  }
+-  return true;
++  // Legacy records lack birth proof; do not retrofit current PID observation.
++  if (!identity.startTime || identity.startTime <= 0 || !identity.bootId) return "unknown";
++  const boot = currentBootId();
++  if (!boot) return "unknown";
++  if (boot !== identity.bootId) return "dead";
++  const live = processStartTime(identity.pid);
++  if (!live || live <= 0) return "unknown";
++  return live === identity.startTime ? "alive" : "dead";
+@@ -206 +220 @@
+-  if (!identity.pid) return;
++  if (!identity.pid || processIdentityStatus(identity) !== "alive") return;
+@@ -294,7 +308,6 @@
+-          // Unreadable lock file: wait one attempt to reclaim by unlinking.
+-          try {
+-            fs.unlinkSync(file);
+-          } catch {
+-            /* race */
+-          }
+-          continue;
++          // Unknown/corrupt lock ownership is not evidence of death; preserve it.
++          return { ok: false, conflict: {
++            ownerId: "unknown", runId: "unknown", parentSessionKey: "unknown",
++            process: { pid: 0, startTime: 0, hostname: HOSTNAME },
++            acquiredAt: 0, leaseExpiresAt: 0, childSessionId,
++          } };
+@@ -462 +475,6 @@
+-      if (!data?.process || !this.isAlive(data.process)) continue;
++      // Malformed ownership is conservatively counted at depth zero.
++      if (!data?.process) {
++        if (depth >= 0) count++;
++        continue;
++      }
++      if (!this.isAlive(data.process)) continue;
+@@ -480 +498,2 @@
+-      if (!data?.process || !this.isAlive(data.process)) {
++      if (!data?.process) continue; // unknown ownership must not be pruned
++      if (!this.isAlive(data.process)) {
+@@ -597 +616 @@
+-  } = {}): Promise<{ reaped: string[]; stillAlive: string[]; alreadyDead: string[] }> {
++  } = {}): Promise<{ reaped: string[]; stillAlive: string[]; alreadyDead: string[]; unknown: string[] }> {
+@@ -599 +618 @@
+-    const report = { reaped: [] as string[], stillAlive: [] as string[], alreadyDead: [] as string[] };
++    const report = { reaped: [] as string[], stillAlive: [] as string[], alreadyDead: [] as string[], unknown: [] as string[] };
+@@ -611 +630,6 @@
+-      if (!this.isAlive(record.process)) {
++      const identityStatus = processIdentityStatus(record.process);
++      if (identityStatus === "unknown") {
++        report.unknown.push(record.runId);
++        continue;
++      }
++      if (identityStatus === "dead") {
+@@ -658 +682,2 @@
+-      if (!owner || !this.isAlive(owner.process)) {
++      if (!owner) continue; // Preserve malformed/unknown lock files for offline diagnosis.
++      if (!this.isAlive(owner.process)) {

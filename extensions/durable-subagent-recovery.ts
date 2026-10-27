@@ -11,7 +11,6 @@ import {
 	renameSync,
 	statSync,
 	unlinkSync,
-	writeFileSync,
 } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
@@ -59,7 +58,7 @@ export interface ProcessIdentity {
 
 export type ProcessLiveness =
 	| { alive: true; verified: true }
-	| { alive: false; reason: "not_found" | "rebooted" | "pid_reused" }
+	| { alive: false; verified: true; reason: "not_found" | "rebooted" | "pid_reused" }
 	| { alive: boolean; verified: false; reason: "permission_denied" | "unverifiable" };
 
 export interface SubagentJobRecord {
@@ -117,7 +116,7 @@ export interface LedgerConfig {
 	vendorLocksDir: string;
 	vendorSessionsDir: string;
 	retentionDays: number;
-	shieldVendorLocks?: boolean; // Opt-in legacy mutation; default false (non-mutating)
+	// Native vendor lock records are never mutated; their running state protects busy sessions/worktrees.
 }
 
 export interface ResumeSpec {
@@ -165,17 +164,23 @@ export function checkProcessLiveness(identity: {
 	pid?: number | null;
 	startTimeTicks?: number | null;
 	bootId?: string | null;
+	hostname?: string | null;
 }): ProcessLiveness {
 	const pid = identity.pid;
-	if (!pid || pid <= 0) return { alive: false, reason: "not_found" };
+	if (!pid || pid <= 0) return { alive: false, verified: false, reason: "unverifiable" };
 
-	// 1. Boot ID check: if system rebooted, process is dead even if PID was recycled
-	if (identity.bootId) {
-		const currentBootId = getSystemBootId();
-		if (currentBootId && currentBootId !== identity.bootId) {
-			return { alive: false, reason: "rebooted" };
-		}
+	if (identity.hostname && identity.hostname !== hostname()) {
+		return { alive: true, verified: false, reason: "unverifiable" };
 	}
+	// Birth identity is mandatory: a PID alone (including a legacy row) is never death proof.
+	if (!identity.startTimeTicks || identity.startTimeTicks <= 0 || !identity.bootId) {
+		return { alive: true, verified: false, reason: "unverifiable" };
+	}
+
+	// A missing current boot ID is not evidence of reboot or process death.
+	const currentBootId = getSystemBootId();
+	if (!currentBootId) return { alive: true, verified: false, reason: "unverifiable" };
+	if (currentBootId !== identity.bootId) return { alive: false, verified: true, reason: "rebooted" };
 
 	// 2. /proc/<pid>/stat check
 	try {
@@ -188,26 +193,20 @@ export function checkProcessLiveness(identity: {
 		const fields = rest.split(/\s+/);
 		const currentTicks = Number(fields[19]);
 
-		const recordedTicks = identity.startTimeTicks ?? 0;
-		if (recordedTicks > 0) {
-			if (currentTicks === recordedTicks) {
-				return { alive: true, verified: true };
-			}
-			// PID exists, but start time ticks differ -> PID reuse!
-			// Verified identity mismatch: old process is gone, but foreign PID must NEVER be signaled.
-			return { alive: false, reason: "pid_reused" };
+		if (!Number.isFinite(currentTicks) || currentTicks <= 0) {
+			return { alive: true, verified: false, reason: "unverifiable" };
 		}
-
-		// startTimeTicks was 0 or not recorded -> cannot prove identity
-		return { alive: true, verified: false, reason: "unverifiable" };
+		if (currentTicks === identity.startTimeTicks) return { alive: true, verified: true };
+		// PID exists, but birth ticks differ; the recorded process is dead, foreign PID is not ours.
+		return { alive: false, verified: true, reason: "pid_reused" };
 	} catch (err: any) {
 		if (err?.code === "ENOENT") {
-			return { alive: false, reason: "not_found" };
+			return { alive: false, verified: true, reason: "not_found" };
 		}
 		if (err?.code === "EACCES" || err?.code === "EPERM") {
 			return { alive: true, verified: false, reason: "permission_denied" };
 		}
-		return { alive: false, reason: "not_found" };
+		return { alive: true, verified: false, reason: "unverifiable" };
 	}
 }
 
@@ -299,7 +298,6 @@ export function protectVendorOrphanRecords(
 	options?: {
 		vendorSessionsDir?: string;
 		durableSessionsDir?: string;
-		legacyMutateState?: boolean;
 	},
 ): { protectedCount: number; preservedCount?: number } {
 	const runsDir = join(vendorLocksDir, "runs");
@@ -324,24 +322,9 @@ export function protectVendorOrphanRecords(
 						}
 					}
 
-					// 2. Only mutate if explicitly requested (legacy test mock mode)
-					if (options?.legacyMutateState && record.process?.pid) {
-						const liveness = checkProcessLiveness({
-							pid: record.process.pid,
-							startTimeTicks: record.process.startTime,
-							bootId: record.process.bootId,
-						});
-						if (liveness.alive) {
-							record.state = "terminal";
-							record.terminalState = "detached-protected";
-							record.protectedBy = "durable-subagent-recovery";
-							record.updatedAt = Date.now();
-							writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
-							count++;
-						}
-					} else {
-						count++;
-					}
+					// Keep native state unchanged so native maintenance still treats the session
+					// and worktree as busy. The observer never claims process survival.
+					count++;
 				}
 			} catch {}
 		}
@@ -440,7 +423,6 @@ export class DurableSubagentLedger {
 		const vendorLocksDir = customConfig?.vendorLocksDir ?? process.env.PI_SUBAGENT_LOCK_DIR ?? join(home, ".pi", "subagent-locks");
 		const vendorSessionsDir = customConfig?.vendorSessionsDir ?? process.env.PI_SUBAGENT_SESSION_DIR ?? join(home, ".pi", "subagent-sessions");
 		const retentionDays = customConfig?.retentionDays ?? 14;
-		const shieldVendorLocks = customConfig?.shieldVendorLocks ?? false;
 
 		this.config = {
 			durableDir,
@@ -449,7 +431,6 @@ export class DurableSubagentLedger {
 			vendorLocksDir,
 			vendorSessionsDir,
 			retentionDays,
-			shieldVendorLocks,
 		};
 
 		mkdirSync(this.config.durableDir, { recursive: true, mode: 0o700 });
@@ -708,13 +689,17 @@ export class DurableSubagentLedger {
 		childSessionPath?: string;
 		preservedSessionPath?: string;
 		state?: SubagentJobRecord["state"];
+		startTimeTicks?: number | null;
+		bootId?: string | null;
 		turn?: number;
 		checkpointText?: string;
 		worktreeCwd?: string;
 	}): void {
 		const now = Date.now();
-		const bootId = params.pid ? getSystemBootId() : null;
-		const ticks = params.pid ? getProcessStartTimeTicks(params.pid) : null;
+		// Do not turn a late observation of a PID into birth evidence. Callers must
+		// supply identity captured by the launcher/lock record; absent proof stays NULL.
+		const bootId = params.bootId ?? null;
+		const ticks = params.startTimeTicks ?? null;
 		const host = hostname();
 
 		const updates: string[] = ["updated_at = ?"];
@@ -899,21 +884,21 @@ export class DurableSubagentLedger {
 				return { ok: false, reason: "job_not_resumable", job: row };
 			}
 
-			// Refuse resume if process is still running or unverifiable (P1-2)
-			if ((row.state === "running" || row.state === "resuming") && row.pid) {
-				const liveness = checkProcessLiveness({
-					pid: row.pid,
-					startTimeTicks: row.start_time_ticks,
-					bootId: row.boot_id,
-				});
-				if (liveness.verified === false) {
-					this.db.exec("ROLLBACK;");
-					return { ok: false, reason: "process_liveness_unverifiable", job: row };
-				}
-				if (liveness.alive) {
-					this.db.exec("ROLLBACK;");
-					return { ok: false, reason: "process_still_running", job: row };
-				}
+			// Every claim rechecks the complete birth identity, regardless of ledger state.
+			// Missing/legacy PID bindings and unknown liveness are non-claimable.
+			const liveness = checkProcessLiveness({
+				pid: row.pid,
+				startTimeTicks: row.start_time_ticks,
+				bootId: row.boot_id,
+				hostname: row.hostname,
+			});
+			if (!liveness.verified) {
+				this.db.exec("ROLLBACK;");
+				return { ok: false, reason: "process_liveness_unverifiable", job: row };
+			}
+			if (liveness.alive) {
+				this.db.exec("ROLLBACK;");
+				return { ok: false, reason: "process_still_running", job: row };
 			}
 
 			// Check active lease held by another claimant
@@ -998,6 +983,7 @@ export class DurableSubagentLedger {
 					pid: orig.pid,
 					startTimeTicks: orig.start_time_ticks,
 					bootId: orig.boot_id,
+					hostname: orig.hostname,
 				});
 				if (liveness.alive) {
 					this.db.exec("ROLLBACK;");
@@ -1053,6 +1039,7 @@ export class DurableSubagentLedger {
 
 	public reconcileOnStartup(): {
 		aliveWorkers: SubagentJobRecord[];
+		unknownWorkers: SubagentJobRecord[];
 		orphanedDead: SubagentJobRecord[];
 		protectedFromVendor: number;
 		preservedTranscripts: number;
@@ -1061,7 +1048,6 @@ export class DurableSubagentLedger {
 		const { protectedCount, preservedCount } = protectVendorOrphanRecords(this.config.vendorLocksDir, {
 			vendorSessionsDir: this.config.vendorSessionsDir,
 			durableSessionsDir: this.config.sessionsDir,
-			legacyMutateState: this.config.shieldVendorLocks,
 		});
 
 		// 2. Scan our ledger's running/resuming jobs
@@ -1070,14 +1056,25 @@ export class DurableSubagentLedger {
 			.all() as SubagentJobRecord[];
 
 		const aliveWorkers: SubagentJobRecord[] = [];
+		const unknownWorkers: SubagentJobRecord[] = [];
 		const orphanedDead: SubagentJobRecord[] = [];
 		const now = Date.now();
 
 		for (const job of activeJobs) {
 			if (job.state === "resuming") {
 				if (!job.superseded_by_job_id) {
-					// Parent crashed after claim but before new child was launched (parent crash gap).
-					// Reset to interrupted so it can be safely recovered in the new parent session.
+					// A pending launch has an ambiguous side-effect boundary. Preserve it as
+					// unknown and never release its reservation merely because the parent died.
+					const pendingLiveness = checkProcessLiveness({ pid: job.pid, startTimeTicks: job.start_time_ticks, bootId: job.boot_id, hostname: job.hostname });
+					if (!pendingLiveness.verified) {
+						unknownWorkers.push(job);
+						continue;
+					}
+					if (pendingLiveness.alive) {
+						aliveWorkers.push(job);
+						continue;
+					}
+					// Verified death permits a future explicit recovery; it does not imply task success.
 					this.db
 						.prepare(
 							`
@@ -1113,15 +1110,17 @@ export class DurableSubagentLedger {
 			let pid = job.pid;
 			let ticks = job.start_time_ticks;
 			let bootId = job.boot_id;
-			if (!pid && job.run_id) {
+			if (job.run_id) {
 				const lockRec = this.readVendorRunRecord(job.run_id);
 				if (lockRec?.process?.pid) {
-					pid = lockRec.process.pid;
-					ticks = lockRec.process.startTime;
-					bootId = getSystemBootId();
+					pid = pid ?? lockRec.process.pid;
+					ticks = ticks ?? lockRec.process.startTime ?? null;
+					bootId = bootId ?? lockRec.process.bootId ?? null;
 					this.updateJobExecution({
 						jobId: job.job_id,
 						pid,
+						startTimeTicks: ticks,
+						bootId,
 						childSessionId: lockRec.childSessionId ?? job.child_session_id ?? undefined,
 						worktreeCwd: lockRec.worktreeCwd ?? job.worktree_cwd,
 					});
@@ -1129,10 +1128,8 @@ export class DurableSubagentLedger {
 			}
 
 			if (!pid) {
-				// No process identity recorded before interruption -> interrupted
-				this.db.prepare("UPDATE subagent_jobs SET state = 'interrupted', updated_at = ? WHERE job_id = ?").run(now, job.job_id);
-				job.state = "interrupted";
-				orphanedDead.push(job);
+				// Missing launch identity is ambiguous (launch may have occurred); preserve state.
+				unknownWorkers.push(job);
 				continue;
 			}
 
@@ -1140,12 +1137,15 @@ export class DurableSubagentLedger {
 				pid,
 				startTimeTicks: ticks,
 				bootId,
+				hostname: job.hostname,
 			});
 
-			if (liveness.alive && liveness.verified) {
+			if (!liveness.verified) {
+				unknownWorkers.push(job);
+			} else if (liveness.alive) {
 				aliveWorkers.push(job);
 			} else {
-				// Dead or unverifiable on parent restart -> mark interrupted (never fake successful completion)
+				// Only verified death permits interruption; never infer successful completion.
 				this.db.prepare("UPDATE subagent_jobs SET state = 'interrupted', updated_at = ? WHERE job_id = ?").run(now, job.job_id);
 				job.state = "interrupted";
 				orphanedDead.push(job);
@@ -1165,6 +1165,7 @@ export class DurableSubagentLedger {
 
 		return {
 			aliveWorkers,
+			unknownWorkers,
 			orphanedDead,
 			protectedFromVendor: protectedCount,
 			preservedTranscripts: preservedCount ?? 0,
@@ -1194,6 +1195,23 @@ export class DurableSubagentLedger {
 // ============================================================================
 
 export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void {
+	// Native package extensions are registered before user extensions and run their
+	// session_start maintenance first. Take a read-only transcript snapshot during
+	// factory registration (before any session_start handler can terminalize/prune
+	// native records); do not launch resources or claim detached-worker survival here.
+	try {
+		const home = homedir();
+		const durableDir = process.env.PI_DURABLE_DIR ?? join(home, ".pi", "durable");
+		const vendorLocksDir = process.env.PI_SUBAGENT_LOCK_DIR ?? join(home, ".pi", "subagent-locks");
+		const vendorSessionsDir = process.env.PI_SUBAGENT_SESSION_DIR ?? join(home, ".pi", "subagent-sessions");
+		protectVendorOrphanRecords(vendorLocksDir, {
+			vendorSessionsDir,
+			durableSessionsDir: join(durableDir, "sessions"),
+		});
+	} catch (err) {
+		console.error("[durable-subagent-recovery] Early transcript preservation failed:", err);
+	}
+
 	let ledger: DurableSubagentLedger | undefined;
 	const activeToolCalls = new Map<
 		string,
@@ -1421,6 +1439,8 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 						inst.updateJobExecution({
 							jobId: entry.jobId,
 							pid: lockRecord.process?.pid,
+							startTimeTicks: lockRecord.process?.startTime ?? null,
+							bootId: lockRecord.process?.bootId ?? null,
 							childSessionId: lockRecord.childSessionId,
 							childSessionPath: livePath,
 							preservedSessionPath: preservedPath,
@@ -1613,7 +1633,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 				const jobs = params.includeCompleted ? inst.listAllJobs(20) : inst.listRecoverableJobs();
 				const formatted = jobs.map((j) => {
 					const liveness = j.pid
-						? checkProcessLiveness({ pid: j.pid, startTimeTicks: j.start_time_ticks, bootId: j.boot_id })
+						? checkProcessLiveness({ pid: j.pid, startTimeTicks: j.start_time_ticks, bootId: j.boot_id, hostname: j.hostname })
 						: { alive: false, reason: "not_found" };
 					const sessionPath = j.preserved_session_path || j.child_session_path;
 					let resumeCommand: string | undefined;
@@ -1670,7 +1690,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 					};
 				}
 				const liveness = job.pid
-					? checkProcessLiveness({ pid: job.pid, startTimeTicks: job.start_time_ticks, bootId: job.boot_id })
+					? checkProcessLiveness({ pid: job.pid, startTimeTicks: job.start_time_ticks, bootId: job.boot_id, hostname: job.hostname })
 					: { alive: false, reason: "not_found" };
 				const sessionPath = job.preserved_session_path || job.child_session_path;
 				let resumeCommand: string | undefined;

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawn, spawnSync, execSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -201,17 +201,16 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 				sessionsDir: sandbox.sessionsDir,
 				vendorLocksDir: sandbox.vendorLocksDir,
 				vendorSessionsDir: sandbox.vendorSessionsDir,
-				shieldVendorLocks: true,
 			});
 
 			// Run startup reconciliation
 			const report = freshLedger.reconcileOnStartup();
 
-			// 1. Verify vendor lock record was shielded in legacy test mode
+			// Vendor lock stays untouched; native running state retains busy/worktree protection.
 			const updatedLockRecord = JSON.parse(fs.readFileSync(vendorLockFile, "utf8"));
-			assert.equal(updatedLockRecord.state, "terminal", "Vendor lock record must be marked terminal in shielded mode");
-			assert.equal(updatedLockRecord.terminalState, "detached-protected");
-			assert.equal(report.protectedFromVendor, 1, "Report must reflect 1 protected worker");
+			assert.equal(updatedLockRecord.state, "running", "Observer must preserve native running state");
+			assert.equal(updatedLockRecord.terminalState, undefined);
+			assert.equal(report.protectedFromVendor, 1, "Report must reflect 1 observed worker");
 
 			// 2. Verify child process is STILL ALIVE (never killed!)
 			childLiveness = checkProcessLiveness({ pid: childPid, startTimeTicks: ticks, bootId });
@@ -408,6 +407,9 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			});
 			ledger.updateJobExecution({
 				jobId: "contended_job",
+				pid: 999999,
+				startTimeTicks: 1,
+				bootId: getSystemBootId(),
 				preservedSessionPath: dummySession,
 				state: "orphaned_dead",
 			});
@@ -447,6 +449,8 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			ledger.updateJobExecution({
 				jobId: "contended_job",
 				pid: process.pid,
+				startTimeTicks: getProcessStartTimeTicks(process.pid),
+				bootId: getSystemBootId(),
 				state: "running",
 			});
 
@@ -674,7 +678,24 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			const restoredMode = (fs.statSync(deployedExt).mode & 0o777).toString(8);
 			assert.equal(restoredMode, "644", "Restored extension must match exact original mode");
 
-			// Scenario B: Symlink target refusal
+			// Scenario B: manifests are data, never shell source (regression for reproduced eval injection).
+			const marker = path.join(sandbox.tmpRoot, "manifest-eval-marker");
+			fs.writeFileSync(deployedExt, customContent, "utf8");
+			const isolatedInstall = spawnSync(ensureScript, { env, encoding: "utf8" });
+			assert.equal(isolatedInstall.status, 0, isolatedInstall.stderr);
+			const attack = `$(printf owned > ${marker})`;
+			const poisoned = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+			poisoned.backupPath = attack;
+			fs.writeFileSync(manifestPath, JSON.stringify(poisoned));
+			const poisonedInstall = spawnSync(ensureScript, { env, encoding: "utf8" });
+			assert.notEqual(poisonedInstall.status, 0, "Tampered manifest must fail closed on reinstall");
+			assert.equal(fs.existsSync(marker), false, "Installer must not execute manifest shell text");
+			const poisonedRollback = spawnSync(doctorScript, ["--rollback"], { env, encoding: "utf8" });
+			assert.notEqual(poisonedRollback.status, 0, "Tampered manifest must fail closed on rollback");
+			assert.equal(fs.existsSync(marker), false, "Doctor must not execute manifest shell text");
+			assert.match(fs.readFileSync(deployedExt, "utf8"), /durable-subagent-recovery/);
+
+			// Scenario C: Symlink target refusal
 			// Replace deployed extension with a symlink
 			fs.rmSync(deployedExt);
 			const dummyTarget = path.join(sandbox.tmpRoot, "dummy.txt");
@@ -698,7 +719,7 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 		}
 	});
 
-	await t.test("11. Real Pi SDK event order pipeline: tool_execution_start before tool_call", async () => {
+	await t.test("11. Mock ExtensionAPI callback-order contract (not real SDK integration)", async () => {
 		const sandbox = createTestSandbox();
 		try {
 			// Mock ExtensionAPI
@@ -730,7 +751,7 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 
 			await fireEvent("session_start", {});
 
-			// SDK Event 1: tool_execution_start FIRES FIRST
+			// Contract callback 1: tool_execution_start fires first in this synthetic harness.
 			const toolCallId = "call_real_sdk_001";
 			await fireEvent("tool_execution_start", {
 				toolCallId,
@@ -751,12 +772,12 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			assert.equal(job.state, "queued");
 			assert.equal(job.is_async, 1);
 
-			// SDK Event 2: tool_call FIRES SECOND
+			// Contract callback 2: tool_call follows start in this synthetic harness.
 			await fireEvent("tool_call", { toolCallId, toolName: "subagent" });
 			job = ledger.findJobByToolCallId(toolCallId);
 			assert.equal(job.state, "running", "Job transitions to running on tool_call");
 
-			// SDK Event 3: tool_execution_end with async launch receipt
+			// Contract callback 3: tool_execution_end with async launch receipt.
 			const nativeRunId = "b91f0941-86f7-41ab-85b4-9273d6332152";
 			await fireEvent("tool_execution_end", {
 				toolCallId,
@@ -771,7 +792,7 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			assert.ok(correlatedJob, "Job run_id must be updated to native UUID");
 			assert.equal(correlatedJob.state, "running", "Async receipt must keep state as running");
 
-			// SDK Event 4: message_end with kebab-case "subagent-completion"
+			// Contract callback 4: message_end with kebab-case "subagent-completion".
 			await fireEvent("message_end", {
 				message: {
 					customType: "subagent-completion",
@@ -987,7 +1008,7 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 		}
 	});
 
-	await t.test("13. Native lifecycle / distillation survival without mutating vendor locks", () => {
+	await t.test("13. Mock observer preservation contract and non-mutation", () => {
 		const sandbox = createTestSandbox();
 		try {
 			// Create a child session in vendor sessions
@@ -1012,7 +1033,6 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			const outcome = protectVendorOrphanRecords(sandbox.vendorLocksDir, {
 				vendorSessionsDir: sandbox.vendorSessionsDir,
 				durableSessionsDir: sandbox.sessionsDir,
-				legacyMutateState: false, // Default: NON-MUTATING
 			});
 
 			assert.equal(outcome.preservedCount, 1, "Must preserve child transcript");
@@ -1112,43 +1132,71 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 		}
 	});
 
-	await t.test("16. Staged vendor compatibility patch isolated application & reversibility", () => {
+	await t.test("16. Staged Android compatibility patch exercises isolated native lifecycle", async () => {
 		const patchFile = path.join(REPO_ROOT, "patches", "@parke.dev-pi-subagent-v0.8.0-android-proc-safety.patch");
 		assert.ok(fs.existsSync(patchFile), "Vendor patch file must exist in repo");
-
+		assert.equal(process.platform, "android", "Must exercise real Android, not a platform spoof");
 		const sandbox = createTestSandbox();
+		let child;
+		let manager;
 		try {
-			const vendorSrc = "/data/data/com.termux/files/home/.pi/agent/npm/node_modules/@parke.dev/pi-subagent/src/process-lock.ts";
+			const vendorSrcDir = "/data/data/com.termux/files/home/.pi/agent/npm/node_modules/@parke.dev/pi-subagent/src";
 			const testDir = path.join(sandbox.tmpRoot, "patch-test");
 			const testSrcDir = path.join(testDir, "src");
 			fs.mkdirSync(testSrcDir, { recursive: true });
-
 			const testFile = path.join(testSrcDir, "process-lock.ts");
-			fs.copyFileSync(vendorSrc, testFile);
-
+			fs.copyFileSync(path.join(vendorSrcDir, "process-lock.ts"), testFile);
+			// Minimal dependency seam: process-lock only reads defaultConfig.sessionDir/maxDepth.
+			fs.writeFileSync(path.join(testSrcDir, "config.js"), 'const os = require("node:os"); const path = require("node:path"); exports.defaultConfig = { sessionDir: path.join(os.tmpdir(), "native-lock-fixture"), maxDepth: 2 };');
 			const origSha = execSync(`sha256sum "${testFile}"`, { encoding: "utf8" }).split(" ")[0];
-			assert.equal(origSha, "5cf89e4846ebc3bb59fce14af05ce0cf92be6701456ecef3e4e51746e82b2702", "Vendor file SHA256 must match known baseline");
-
-			// Apply patch in sandbox
-			const applyRes = spawnSync("patch", ["-d", testDir, "-p1"], {
-				input: fs.readFileSync(patchFile),
-				encoding: "utf8",
-			});
+			assert.equal(origSha, "5cf89e4846ebc3bb59fce14af05ce0cf92be6701456ecef3e4e51746e82b2702");
+			const applyRes = spawnSync("patch", ["-d", testDir, "-p1"], { input: fs.readFileSync(patchFile), encoding: "utf8" });
 			assert.equal(applyRes.status, 0, `Patch apply failed: ${applyRes.stderr}`);
+			assert.equal(execSync(`sha256sum "${testFile}"`, { encoding: "utf8" }).split(" ")[0], "0125694e4a15b1dac551e8442a536ad32290f42e6ec3c52f31cb48bc31d91c6b");
 
-			const patchedSha = execSync(`sha256sum "${testFile}"`, { encoding: "utf8" }).split(" ")[0];
-			assert.equal(patchedSha, "450398c72432ee2945a811ff981985d043fb85664d339d73c82d33d388a304c1", "Patched SHA256 must match expected");
+			const native = await import(`${pathToFileURL(testFile).href}?fixture=${Date.now()}`);
+			assert.ok(native.processStartTime(process.pid) > 0, "Native Android processStartTime reads this process's real /proc ticks");
+			const root = path.join(sandbox.tmpRoot, "native-locks");
+			manager = new native.ProcessLockManager({ rootDir: root, maxGlobalActive: 1 });
+			child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+			assert.ok(child.pid);
+			for (let i = 0; i < 30 && native.processStartTime(child.pid) === 0; i++) await new Promise((r) => setTimeout(r, 20));
+			const childTicks = native.processStartTime(child.pid);
+			assert.ok(childTicks > 0, "Native parser sees active fixture child's Android birth ticks");
+			const bootId = fs.readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+			const identity = { pid: child.pid, startTime: childTicks, hostname: os.hostname(), bootId };
+			for (const rec of [
+				{ runId: "legacy-zero", process: { ...identity, startTime: 0, bootId: undefined } },
+				{ runId: "unknown-host", process: { ...identity, hostname: "foreign-fixture-host" } },
+				{ runId: "reused-pid", process: { ...identity, startTime: childTicks + 1 } },
+				{ runId: "old-boot", process: { ...identity, bootId: `${bootId}-old` } },
+			]) manager.writeRunRecord({ ...rec, parentSessionKey: "fixture-parent", childSessionId: `session-${rec.runId}`, startedAt: Date.now(), state: "running", updatedAt: Date.now() });
 
-			// Reverse patch in sandbox
-			const revRes = spawnSync("patch", ["-R", "-d", testDir, "-p1"], {
-				input: fs.readFileSync(patchFile),
-				encoding: "utf8",
-			});
+			const report = await manager.reconcileOrphans({ killGraceMs: 1 });
+			assert.deepEqual(new Set(report.unknown), new Set(["legacy-zero", "unknown-host"]));
+			assert.ok(report.alreadyDead.includes("reused-pid"));
+			assert.ok(report.alreadyDead.includes("old-boot"));
+			assert.equal(manager.readRunRecord("legacy-zero").state, "running");
+			assert.equal(manager.readRunRecord("unknown-host").state, "running");
+			assert.equal(manager.readRunRecord("reused-pid").state, "terminal");
+			assert.equal(manager.readRunRecord("old-boot").state, "terminal");
+			process.kill(child.pid, 0);
+
+			const malformedLock = path.join(root, "sessions", "unknown.lock");
+			fs.writeFileSync(malformedLock, "not-json");
+			const malformedSlot = path.join(root, "slots", "unknown.slot");
+			fs.writeFileSync(malformedSlot, "not-json");
+			assert.throws(() => manager.tryAcquireGlobalSlot("second", 0), /process limit reached/);
+			assert.equal(fs.existsSync(malformedSlot), true, "Unknown slot data is retained and counted");
+			manager.sweep();
+			assert.equal(fs.existsSync(malformedLock), true, "Unknown session lock data is retained");
+
+			const revRes = spawnSync("patch", ["-R", "-d", testDir, "-p1"], { input: fs.readFileSync(patchFile), encoding: "utf8" });
 			assert.equal(revRes.status, 0, `Patch reverse failed: ${revRes.stderr}`);
-
-			const restoredSha = execSync(`sha256sum "${testFile}"`, { encoding: "utf8" }).split(" ")[0];
-			assert.equal(restoredSha, origSha, "Reversed file must match exact original SHA256");
+			assert.equal(execSync(`sha256sum "${testFile}"`, { encoding: "utf8" }).split(" ")[0], origSha);
 		} finally {
+			manager?.dispose();
+			if (child?.pid) try { process.kill(child.pid, "SIGKILL"); } catch {}
 			sandbox.cleanup();
 		}
 	});
@@ -1182,6 +1230,8 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			ledger.updateJobExecution({
 				jobId: origJobId,
 				pid: 999999, // dead PID
+				startTimeTicks: 1,
+				bootId: getSystemBootId(),
 				preservedSessionPath: sessionFile,
 				state: "interrupted",
 			});
@@ -1269,6 +1319,8 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			ledger.updateJobExecution({
 				jobId: crashGapJobId,
 				pid: 888888, // dead PID
+				startTimeTicks: 1,
+				bootId: getSystemBootId(),
 				preservedSessionPath: sessionFile,
 				state: "interrupted",
 			});
@@ -1300,6 +1352,39 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			delete process.env.PI_DURABLE_DIR;
 			delete process.env.PI_SUBAGENT_LOCK_DIR;
 			delete process.env.PI_SUBAGENT_SESSION_DIR;
+			sandbox.cleanup();
+		}
+	});
+
+	await t.test("18. Startup keeps unknown liveness nonclaimable and preserves pending state", () => {
+		const sandbox = createTestSandbox();
+		try {
+			const ledger = new DurableSubagentLedger({
+				durableDir: sandbox.durableDir,
+				dbPath: sandbox.dbPath,
+				sessionsDir: sandbox.sessionsDir,
+				vendorLocksDir: sandbox.vendorLocksDir,
+				vendorSessionsDir: sandbox.vendorSessionsDir,
+			});
+			const transcript = path.join(sandbox.sessionsDir, "unknown.jsonl");
+			fs.writeFileSync(transcript, '{"type":"session","id":"unknown"}\\n');
+			ledger.recordJobAdmission({
+				jobId: "unknown-live-job",
+				runId: "unknown-live-run",
+				worktreeCwd: sandbox.tmpRoot,
+				spec: { task: "uncertain worker", profile: "general" },
+				isAsync: true,
+			});
+			ledger.updateJobExecution({ jobId: "unknown-live-job", pid: process.pid, preservedSessionPath: transcript, state: "running" });
+			const report = ledger.reconcileOnStartup();
+			assert.equal(report.unknownWorkers.length, 1, "Missing birth ticks/boot identity remains explicitly unknown");
+			assert.equal(ledger.getJob("unknown-live-job").state, "running", "Unknown must not be rewritten as interrupted/dead");
+			const claim = ledger.claimResumeLease("unknown-live-job", "would-be-claimant");
+			assert.equal(claim.ok, false, "Unknown liveness must never become claimable");
+			assert.equal(claim.reason, "process_liveness_unverifiable");
+			assert.equal(fs.existsSync(transcript), true, "Uncertain transcript remains preserved");
+			ledger.close();
+		} finally {
 			sandbox.cleanup();
 		}
 	});

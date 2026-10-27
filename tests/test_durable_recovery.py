@@ -36,14 +36,21 @@ class TestDurableRecoveryStructure(unittest.TestCase):
         self.assertIn("PRAGMA journal_mode = WAL;", source)
         self.assertIn("PRAGMA synchronous = FULL;", source)
 
-        # Linux process identity checks
+        # Cross-platform process identity implementation with Linux/Android proc fields
         self.assertIn("/proc/${pid}/stat", source)
         self.assertIn("/proc/sys/kernel/random/boot_id", source)
         self.assertIn("startTimeTicks", source)
 
-        # Vendor orphan protection (Gap 1)
+        # Native lock observer is read-only; unknown liveness stays nonclaimable.
         self.assertIn("protectVendorOrphanRecords", source)
-        self.assertIn("detached-protected", source)
+        self.assertIn("unknownWorkers", source)
+        self.assertIn("process_liveness_unverifiable", source)
+        self.assertNotIn("detached-protected", source)
+        self.assertNotIn("legacyMutateState", source)
+
+        # Manifest input is structured data, never shell source.
+        self.assertNotIn("eval ", ENSURE_SCRIPT.read_text(encoding="utf-8"))
+        self.assertNotIn("eval ", DOCTOR_SCRIPT.read_text(encoding="utf-8"))
 
         # Session preservation in private store
         self.assertIn("preserveSessionFile", source)

@@ -113,19 +113,18 @@ by diffing agents, extensions, prompts, and bin.
 
 ## Durable Subagent Recovery
 
-Crash-resilient subagent tracking, automatic session preservation, and safe logical resumption for Pi 1.4.0+ and `@parke.dev/pi-subagent`.
+Experimental subagent recovery work for Pi 1.4.0+ and `@parke.dev/pi-subagent`. This is not currently deployment-ready: startup/resume lineage still requires independent review and a positive actual-SDK recovery run.
 
 - **Zero External Dependencies**: Uses Node 24 built-in `node:sqlite` in WAL mode (`PRAGMA synchronous = FULL`).
-- **Non-Mutating Observer Lifecycle**: Observes subagent execution without mutating vendor lock records or suppressing native maintenance sets, safely preserving transcripts to private storage for logical recovery.
-- **Transcript Preservation**: Copies child session `.jsonl` files to private storage (`~/.pi/durable/sessions`, `0600` permissions), guarding against lifecycle distillation.
-- **Absolute Path Resumption**: Solves CWD mismatch and fork prompt issues during session recovery.
-- **Transactional Lineage & Takeover Reservations**: Atomic lease and takeover reservation binding child runs, preventing duplicate workers across expired leases or uncoordinated callers.
+- **Non-Mutating Observer**: Never alters native lock records. It takes an early startup snapshot before native `session_start` maintenance can terminalize/prune a run; this does not promise detached-worker survival.
+- **Fail-Closed Liveness**: Unknown or legacy process identity remains unknown and nonclaimable. Missing PID/ticks/boot identity is not proof of death.
+- **Recovery Status**: Resume admission, reservation consumption, and successor lineage are under repair. Do not use generated commands or install this extension as a safe recovery guarantee until the documented gates pass.
 - **Commands & Tools**:
   - `/subagent-recover`: Slash command listing recoverable jobs and exact resume commands.
   - `subagent_recover`: Model-callable tool for automated recovery inspection and lease claims.
   - `bin/durable-subagent-doctor.sh`: Standalone CLI diagnostic and rollback utility.
 
-See [docs/durable-subagent-recovery.md](docs/durable-subagent-recovery.md) for full architecture details.
+See [docs/durable-subagent-recovery.md](docs/durable-subagent-recovery.md) for current scope, limitations, and validation gates.
 
 ---
 
