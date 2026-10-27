@@ -1,0 +1,13 @@
+--- a/src/process-lock.ts
++++ b/src/process-lock.ts
+@@ -608,6 +608,10 @@
+       }
+       if (options.parentSessionKey && record.parentSessionKey !== options.parentSessionKey) continue;
+       if (options.skipRunIds?.has(record.runId)) continue;
++      if (process.env.PI_SUBAGENT_DETACHED_MODE === "1" && this.isAlive(record.process)) {
++        report.stillAlive.push(record.runId);
++        continue;
++      }
+       if (!this.isAlive(record.process)) {
+         this.markRunTerminal(record.runId, "orphaned-dead");
+         report.alreadyDead.push(record.runId);

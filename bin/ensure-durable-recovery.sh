@@ -17,7 +17,7 @@ chmod 0700 "$durable_dir"
 chmod 0700 "$durable_dir/sessions"
 echo "✓ Secure directory verified: $durable_dir (0700)"
 
-# 2. Verify node:sqlite support & database initialization
+# 2. Verify node:sqlite support & database initialization (Fail-Closed)
 node -e '
 const { DatabaseSync } = require("node:sqlite");
 const fs = require("node:fs");
@@ -27,7 +27,20 @@ const durableDir = process.env.PI_DURABLE_DIR || path.join(process.env.HOME, ".p
 const dbPath = path.join(durableDir, "subagents.sqlite");
 
 try {
-  const db = new DatabaseSync(dbPath);
+  let db;
+  try {
+    db = new DatabaseSync(dbPath);
+    const check = db.prepare("PRAGMA quick_check").get();
+    if (check && check.quick_check !== "ok") {
+      throw new Error("PRAGMA quick_check returned: " + JSON.stringify(check));
+    }
+  } catch (openErr) {
+    console.error("! Fail-Closed: SQLite database at " + dbPath + " failed integrity check.");
+    console.error("! Preserving existing database, WAL, and SHM untouched to prevent silent state loss.");
+    console.error("! Error details: " + openErr.message);
+    process.exit(1);
+  }
+
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA synchronous = FULL;");
   
@@ -78,10 +91,6 @@ try {
     `);
   }
   
-  const check = db.prepare("PRAGMA quick_check").get();
-  if (check && check.quick_check !== "ok") {
-    throw new Error("Integrity check failed: " + JSON.stringify(check));
-  }
   db.close();
   // Secure database permissions (chmod 0600)
   fs.chmodSync(dbPath, 0o600);
@@ -96,24 +105,77 @@ try {
 }
 '
 
-# 3. Deploy extension to agent extensions directory
+# 3. Deploy extension atomically with deployment-hash manifest
 mkdir -p "$agent_dir/extensions"
+chmod 0700 "$agent_dir/extensions" 2>/dev/null || true
+
 src_ext="$repo_root/extensions/durable-subagent-recovery.ts"
 dest_ext="$agent_dir/extensions/durable-subagent-recovery.ts"
+manifest_file="$durable_dir/deployment-manifest.json"
+
+calc_sha256() {
+  if [[ -f "$1" ]]; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    echo ""
+  fi
+}
 
 if [[ -f "$src_ext" && "$repo_root" != "$agent_dir" ]]; then
-  # Create a hash-safe backup before copy if target exists and differs
-  if [[ -f "$dest_ext" ]]; then
-    src_sha=$(sha256sum "$src_ext" | cut -d' ' -f1)
-    dest_sha=$(sha256sum "$dest_ext" | cut -d' ' -f1)
-    if [[ "$src_sha" != "$dest_sha" ]]; then
+  src_sha=$(calc_sha256 "$src_ext")
+  dest_sha=$(calc_sha256 "$dest_ext")
+  settings_sha=$(calc_sha256 "$agent_dir/settings.json")
+  auth_sha=$(calc_sha256 "$agent_dir/auth.json")
+  models_sha=$(calc_sha256 "$agent_dir/models.json")
+  backup_file=""
+  backup_sha=""
+
+  if [[ -n "$dest_sha" && "$dest_sha" == "$src_sha" ]]; then
+    echo "✓ Extension already deployed and identical (SHA256: ${src_sha:0:12}…)"
+  else
+    if [[ -n "$dest_sha" ]]; then
+      # Backup existing destination atomically
       backup_file="$durable_dir/durable-subagent-recovery.ts.bak.$(date +%s)"
-      cp "$dest_ext" "$backup_file"
-      echo "✓ Backed up existing extension to: $backup_file"
+      cp "$dest_ext" "${backup_file}.tmp.$$"
+      chmod 0600 "${backup_file}.tmp.$$"
+      mv -f "${backup_file}.tmp.$$" "$backup_file"
+      backup_sha="$dest_sha"
+      echo "✓ Backed up existing extension to: $backup_file (SHA256: ${backup_sha:0:12}…)"
     fi
+
+    # Atomic copy: write to temp file in destination directory, verify hash, atomic rename
+    tmp_dest="${dest_ext}.tmp.$$"
+    cp "$src_ext" "$tmp_dest"
+    chmod 0600 "$tmp_dest"
+    tmp_sha=$(calc_sha256 "$tmp_dest")
+    if [[ "$tmp_sha" != "$src_sha" ]]; then
+      rm -f "$tmp_dest"
+      echo "! Error: SHA256 mismatch during deployment staging" >&2
+      exit 1
+    fi
+    mv -f "$tmp_dest" "$dest_ext"
+    echo "✓ Atomically deployed extensions/durable-subagent-recovery.ts (SHA256: ${src_sha:0:12}…)"
   fi
-  cp "$src_ext" "$dest_ext"
-  echo "✓ Deployed extensions/durable-subagent-recovery.ts"
+
+  # Record deployment manifest
+  node -e '
+  const fs = require("node:fs");
+  const manifest = {
+    deployedAt: Date.now(),
+    sourceSha256: process.argv[1],
+    installedSha256: process.argv[2],
+    backupPath: process.argv[3] || null,
+    backupSha256: process.argv[4] || null,
+    settingsSha256: process.argv[5] || null,
+    authSha256: process.argv[6] || null,
+    modelsSha256: process.argv[7] || null,
+  };
+  const path = process.argv[8];
+  const tmp = path + ".tmp." + process.pid;
+  fs.writeFileSync(tmp, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  try { fs.chmodSync(tmp, 0o600); } catch {}
+  fs.renameSync(tmp, path);
+  ' "$src_sha" "$src_sha" "$backup_file" "$backup_sha" "$settings_sha" "$auth_sha" "$models_sha" "$manifest_file"
 fi
 
 echo "All durable subagent recovery preferences verified."

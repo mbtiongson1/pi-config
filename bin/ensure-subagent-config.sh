@@ -5,7 +5,7 @@ set -euo pipefail
 
 KNOWN_WORKING_SUBAGENT_VERSION="0.8.0"
 agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-subagent_config="$HOME/.pi/subagent.json"
+subagent_config="${PI_SUBAGENT_CONFIG:-$HOME/.pi/subagent.json}"
 statusline_config="$agent_dir/statusline.json"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"

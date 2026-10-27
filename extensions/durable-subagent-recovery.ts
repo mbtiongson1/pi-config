@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
+
 // Typebox resolution: Pi maps 'typebox' at runtime; fallback for standalone test runners
 let Type: any;
 try {
@@ -38,6 +39,15 @@ try {
 // ============================================================================
 // Types and Interfaces
 // ============================================================================
+
+export class DatabaseCorruptError extends Error {
+	public readonly dbPath: string;
+	constructor(message: string, dbPath: string) {
+		super(message);
+		this.name = "DatabaseCorruptError";
+		this.dbPath = dbPath;
+	}
+}
 
 export interface ProcessIdentity {
 	pid: number;
@@ -93,6 +103,14 @@ export interface LedgerConfig {
 	vendorLocksDir: string;
 	vendorSessionsDir: string;
 	retentionDays: number;
+	quarantineCorrupt?: boolean;
+	shieldVendorLocks?: boolean; // Opt-in legacy mutation; default false (non-mutating)
+}
+
+export interface ResumeSpec {
+	task: string;
+	resume: string;
+	cwd: string;
 }
 
 // ============================================================================
@@ -156,6 +174,7 @@ export function checkProcessLiveness(identity: {
 				return { alive: true, verified: true };
 			}
 			// PID exists, but start time ticks differ -> PID reuse!
+			// Verified identity mismatch: old process is gone, but foreign PID must NEVER be signaled.
 			return { alive: false, reason: "pid_reused" };
 		}
 
@@ -213,11 +232,23 @@ export function isSessionDistilled(sessionDir: string, sessionId: string): boole
 }
 
 export function preserveSessionFile(sourcePath: string, durableSessionsDir: string): string | null {
-	if (!existsSync(sourcePath)) return null;
+	if (!sourcePath || !existsSync(sourcePath)) return null;
 	try {
 		mkdirSync(durableSessionsDir, { recursive: true, mode: 0o700 });
 		const fileName = basename(sourcePath);
 		const targetPath = join(durableSessionsDir, fileName);
+
+		if (existsSync(targetPath)) {
+			try {
+				const srcStat = statSync(sourcePath);
+				const tgtStat = statSync(targetPath);
+				// If target already contains all bytes, keep it
+				if (srcStat.size <= tgtStat.size && srcStat.mtimeMs <= tgtStat.mtimeMs) {
+					return targetPath;
+				}
+			} catch {}
+		}
+
 		copyFileSync(sourcePath, targetPath);
 		try {
 			chmodSync(targetPath, 0o600);
@@ -229,20 +260,32 @@ export function preserveSessionFile(sourcePath: string, durableSessionsDir: stri
 }
 
 // ============================================================================
-// Vendor Orphan Reconcile Protection (Gap 1)
+// Vendor Orphan Reconcile Protection & Non-Mutating Observer
 // ============================================================================
 
 /**
- * Scan vendor run lock records in ~/.pi/subagent-locks/runs/ before vendor
- * reconcileOrphans executes. If a process is verifiably alive or in an
- * unconfirmed state, mark its record state="terminal" with
- * terminalState="detached-protected" so vendor reconcileOrphans skips it and
- * NEVER kills live workers with SIGTERM/SIGKILL!
+ * Scan vendor run lock records in ~/.pi/subagent-locks/runs/.
+ *
+ * In honest logical recovery, we default to a NON-MUTATING observer.
+ * Setting `record.state = "terminal"` removes running sessions from native
+ * `busy` and `liveWorktrees` sets in native `scheduleMaintenance`, which triggers
+ * premature transcript distillation and worktree deletion!
+ *
+ * This function preserves child transcripts into $durableDir/sessions before
+ * vendor maintenance runs, without stripping native busy/worktree protection.
  */
-export function protectVendorOrphanRecords(vendorLocksDir: string): { protectedCount: number } {
+export function protectVendorOrphanRecords(
+	vendorLocksDir: string,
+	options?: {
+		vendorSessionsDir?: string;
+		durableSessionsDir?: string;
+		legacyMutateState?: boolean;
+	},
+): { protectedCount: number; preservedCount?: number } {
 	const runsDir = join(vendorLocksDir, "runs");
-	if (!existsSync(runsDir)) return { protectedCount: 0 };
+	if (!existsSync(runsDir)) return { protectedCount: 0, preservedCount: 0 };
 	let count = 0;
+	let preservedCount = 0;
 	try {
 		const entries = readdirSync(runsDir);
 		for (const name of entries) {
@@ -251,25 +294,64 @@ export function protectVendorOrphanRecords(vendorLocksDir: string): { protectedC
 			try {
 				const content = readFileSync(file, "utf8");
 				const record = JSON.parse(content);
-				if (record.state === "running" && record.process?.pid) {
-					const liveness = checkProcessLiveness({
-						pid: record.process.pid,
-						startTimeTicks: record.process.startTime,
-						bootId: record.process.bootId,
-					});
-					if (liveness.alive) {
-						record.state = "terminal";
-						record.terminalState = "detached-protected";
-						record.protectedBy = "durable-subagent-recovery";
-						record.updatedAt = Date.now();
-						writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
+				if (record.state === "running") {
+					// 1. Preserve child transcript if known
+					if (record.childSessionId && options?.vendorSessionsDir && options?.durableSessionsDir) {
+						const live = resolveSessionFilePath(options.vendorSessionsDir, record.childSessionId);
+						if (live) {
+							const preserved = preserveSessionFile(live, options.durableSessionsDir);
+							if (preserved) preservedCount++;
+						}
+					}
+
+					// 2. Only mutate if explicitly requested (legacy test mock mode)
+					if (options?.legacyMutateState && record.process?.pid) {
+						const liveness = checkProcessLiveness({
+							pid: record.process.pid,
+							startTimeTicks: record.process.startTime,
+							bootId: record.process.bootId,
+						});
+						if (liveness.alive) {
+							record.state = "terminal";
+							record.terminalState = "detached-protected";
+							record.protectedBy = "durable-subagent-recovery";
+							record.updatedAt = Date.now();
+							writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
+							count++;
+						}
+					} else {
 						count++;
 					}
 				}
 			} catch {}
 		}
 	} catch {}
-	return { protectedCount: count };
+	return { protectedCount: count, preservedCount };
+}
+
+// ============================================================================
+// Resume Command Spec Generation (Policy Validated)
+// ============================================================================
+
+export function buildResumeSpec(job: SubagentJobRecord, preservedSessionPath: string): ResumeSpec {
+	let originalTask = "Resume interrupted task";
+	try {
+		const spec = JSON.parse(job.spec_json || "{}");
+		if (spec.task && typeof spec.task === "string" && spec.task.trim()) {
+			originalTask = spec.task.trim();
+		}
+	} catch {}
+
+	return {
+		task: `Resume: ${originalTask}`,
+		resume: preservedSessionPath,
+		cwd: job.worktree_cwd,
+	};
+}
+
+export function buildResumeCommand(job: SubagentJobRecord, preservedSessionPath: string): string {
+	const spec = buildResumeSpec(job, preservedSessionPath);
+	return `subagent({ task: ${JSON.stringify(spec.task)}, resume: ${JSON.stringify(spec.resume)}, cwd: ${JSON.stringify(spec.cwd)} })`;
 }
 
 // ============================================================================
@@ -285,9 +367,11 @@ export class DurableSubagentLedger {
 		const durableDir = customConfig?.durableDir ?? process.env.PI_DURABLE_DIR ?? join(home, ".pi", "durable");
 		const dbPath = customConfig?.dbPath ?? join(durableDir, "subagents.sqlite");
 		const sessionsDir = customConfig?.sessionsDir ?? join(durableDir, "sessions");
-		const vendorLocksDir = customConfig?.vendorLocksDir ?? join(home, ".pi", "subagent-locks");
-		const vendorSessionsDir = customConfig?.vendorSessionsDir ?? join(home, ".pi", "subagent-sessions");
+		const vendorLocksDir = customConfig?.vendorLocksDir ?? process.env.PI_SUBAGENT_LOCK_DIR ?? join(home, ".pi", "subagent-locks");
+		const vendorSessionsDir = customConfig?.vendorSessionsDir ?? process.env.PI_SUBAGENT_SESSION_DIR ?? join(home, ".pi", "subagent-sessions");
 		const retentionDays = customConfig?.retentionDays ?? 14;
+		const quarantineCorrupt = customConfig?.quarantineCorrupt ?? false;
+		const shieldVendorLocks = customConfig?.shieldVendorLocks ?? false;
 
 		this.config = {
 			durableDir,
@@ -296,15 +380,17 @@ export class DurableSubagentLedger {
 			vendorLocksDir,
 			vendorSessionsDir,
 			retentionDays,
+			quarantineCorrupt,
+			shieldVendorLocks,
 		};
 
 		mkdirSync(this.config.durableDir, { recursive: true, mode: 0o700 });
 		mkdirSync(this.config.sessionsDir, { recursive: true, mode: 0o700 });
 
-		this.db = this.initDatabase(this.config.dbPath);
+		this.db = this.initDatabase(this.config.dbPath, { quarantineCorrupt: this.config.quarantineCorrupt });
 	}
 
-	private initDatabase(dbPath: string): DatabaseSync {
+	private initDatabase(dbPath: string, options?: { quarantineCorrupt?: boolean }): DatabaseSync {
 		let db: DatabaseSync;
 		try {
 			db = new DatabaseSync(dbPath);
@@ -313,16 +399,21 @@ export class DurableSubagentLedger {
 			if (check && check.quick_check !== "ok") {
 				throw new Error(`Corrupt database: ${JSON.stringify(check)}`);
 			}
-		} catch (err) {
-			// Fail-safe: backup corrupted database and create fresh DB (Gap 5)
+		} catch (err: any) {
+			if (!options?.quarantineCorrupt) {
+				// Fail-closed: preserve original database, WAL, and SHM untouched (P1-3)
+				// Never silently wipe active admission or lease state.
+				throw new DatabaseCorruptError(`Database corruption detected in ${dbPath}: ${err?.message || String(err)}`, dbPath);
+			}
+			// Explicit quarantine requested (e.g. via doctor tool --quarantine-corrupt)
 			try {
 				if (existsSync(dbPath)) {
-					const corruptPath = `${dbPath}.corrupt.${Date.now()}`;
-					renameSync(dbPath, corruptPath);
+					const ts = Date.now();
+					renameSync(dbPath, `${dbPath}.corrupt.${ts}`);
 					const wal = `${dbPath}-wal`;
 					const shm = `${dbPath}-shm`;
-					if (existsSync(wal)) renameSync(wal, `${wal}.corrupt.${Date.now()}`);
-					if (existsSync(shm)) renameSync(shm, `${shm}.corrupt.${Date.now()}`);
+					if (existsSync(wal)) renameSync(wal, `${wal}.corrupt.${ts}`);
+					if (existsSync(shm)) renameSync(shm, `${shm}.corrupt.${ts}`);
 				}
 			} catch {}
 			db = new DatabaseSync(dbPath);
@@ -446,6 +537,12 @@ export class DurableSubagentLedger {
 		return this.getJob(params.jobId)!;
 	}
 
+	public updateJobRunId(jobId: string, runId: string): void {
+		const now = Date.now();
+		this.db.prepare("UPDATE subagent_jobs SET run_id = ?, updated_at = ? WHERE job_id = ?").run(runId, now, jobId);
+		this.securePermissions(this.config.dbPath);
+	}
+
 	public updateJobExecution(params: {
 		jobId: string;
 		pid?: number;
@@ -455,6 +552,7 @@ export class DurableSubagentLedger {
 		state?: SubagentJobRecord["state"];
 		turn?: number;
 		checkpointText?: string;
+		worktreeCwd?: string;
 	}): void {
 		const now = Date.now();
 		const bootId = params.pid ? getSystemBootId() : null;
@@ -483,6 +581,10 @@ export class DurableSubagentLedger {
 		if (params.preservedSessionPath !== undefined) {
 			updates.push("preserved_session_path = ?");
 			values.push(params.preservedSessionPath);
+		}
+		if (params.worktreeCwd !== undefined) {
+			updates.push("worktree_cwd = ?");
+			values.push(params.worktreeCwd);
 		}
 		if (params.turn !== undefined) {
 			updates.push("last_checkpoint_turn = ?");
@@ -570,6 +672,22 @@ export class DurableSubagentLedger {
 		return (this.db.prepare("SELECT * FROM subagent_jobs ORDER BY created_at DESC LIMIT ?").all(limit) as SubagentJobRecord[]) ?? [];
 	}
 
+	public readVendorRunRecord(runId: string): any | undefined {
+		try {
+			const runsDir = join(this.config.vendorLocksDir, "runs");
+			const exact = join(runsDir, `${runId}.json`);
+			if (existsSync(exact)) return JSON.parse(readFileSync(exact, "utf8"));
+			if (existsSync(runsDir)) {
+				for (const f of readdirSync(runsDir)) {
+					if (f.endsWith(".json") && f.startsWith(runId)) {
+						return JSON.parse(readFileSync(join(runsDir, f), "utf8"));
+					}
+				}
+			}
+		} catch {}
+		return undefined;
+	}
+
 	// ---- Transactional CAS Claim (Gap 4) --------------------------------------
 
 	public claimResumeLease(
@@ -585,14 +703,18 @@ export class DurableSubagentLedger {
 				return { ok: false, reason: "job_not_found" };
 			}
 
-			// Refuse resume if process is verifiably still alive (never duplicate active workers)
-			if (row.state === "running" && row.pid) {
+			// Refuse resume if process is still running or unverifiable (P1-2)
+			if ((row.state === "running" || row.state === "resuming") && row.pid) {
 				const liveness = checkProcessLiveness({
 					pid: row.pid,
 					startTimeTicks: row.start_time_ticks,
 					bootId: row.boot_id,
 				});
-				if (liveness.alive && liveness.verified) {
+				if (liveness.verified === false) {
+					this.db.exec("ROLLBACK;");
+					return { ok: false, reason: "process_liveness_unverifiable", job: row };
+				}
+				if (liveness.alive) {
 					this.db.exec("ROLLBACK;");
 					return { ok: false, reason: "process_still_running", job: row };
 				}
@@ -652,9 +774,14 @@ export class DurableSubagentLedger {
 		aliveWorkers: SubagentJobRecord[];
 		orphanedDead: SubagentJobRecord[];
 		protectedFromVendor: number;
+		preservedTranscripts: number;
 	} {
-		// 1. Protect vendor locks first
-		const { protectedCount } = protectVendorOrphanRecords(this.config.vendorLocksDir);
+		// 1. Scan vendor locks and preserve all child transcripts before maintenance runs
+		const { protectedCount, preservedCount } = protectVendorOrphanRecords(this.config.vendorLocksDir, {
+			vendorSessionsDir: this.config.vendorSessionsDir,
+			durableSessionsDir: this.config.sessionsDir,
+			legacyMutateState: this.config.shieldVendorLocks,
+		});
 
 		// 2. Scan our ledger's running/resuming jobs
 		const activeJobs = this.db
@@ -666,23 +793,57 @@ export class DurableSubagentLedger {
 		const now = Date.now();
 
 		for (const job of activeJobs) {
-			if (!job.pid) {
-				// No PID recorded -> mark orphaned_dead
-				this.db.prepare("UPDATE subagent_jobs SET state = 'orphaned_dead', updated_at = ? WHERE job_id = ?").run(now, job.job_id);
+			// If session file exists in vendor sessions or durable sessions, ensure it is preserved
+			let sessionPath = job.preserved_session_path;
+			if (!sessionPath && job.child_session_id) {
+				const livePath = resolveSessionFilePath(this.config.vendorSessionsDir, job.child_session_id);
+				if (livePath) {
+					sessionPath = preserveSessionFile(livePath, this.config.sessionsDir) ?? undefined;
+					if (sessionPath) {
+						this.updateJobExecution({ jobId: job.job_id, preservedSessionPath: sessionPath, childSessionPath: livePath });
+					}
+				}
+			}
+
+			// If no PID recorded yet, check vendor run lock record
+			let pid = job.pid;
+			let ticks = job.start_time_ticks;
+			let bootId = job.boot_id;
+			if (!pid && job.run_id) {
+				const lockRec = this.readVendorRunRecord(job.run_id);
+				if (lockRec?.process?.pid) {
+					pid = lockRec.process.pid;
+					ticks = lockRec.process.startTime;
+					bootId = getSystemBootId();
+					this.updateJobExecution({
+						jobId: job.job_id,
+						pid,
+						childSessionId: lockRec.childSessionId ?? job.child_session_id ?? undefined,
+						worktreeCwd: lockRec.worktreeCwd ?? job.worktree_cwd,
+					});
+				}
+			}
+
+			if (!pid) {
+				// No process identity recorded before interruption -> interrupted
+				this.db.prepare("UPDATE subagent_jobs SET state = 'interrupted', updated_at = ? WHERE job_id = ?").run(now, job.job_id);
+				job.state = "interrupted";
 				orphanedDead.push(job);
 				continue;
 			}
 
 			const liveness = checkProcessLiveness({
-				pid: job.pid,
-				startTimeTicks: job.start_time_ticks,
-				bootId: job.boot_id,
+				pid,
+				startTimeTicks: ticks,
+				bootId,
 			});
 
-			if (liveness.alive) {
+			if (liveness.alive && liveness.verified) {
 				aliveWorkers.push(job);
 			} else {
-				this.db.prepare("UPDATE subagent_jobs SET state = 'orphaned_dead', updated_at = ? WHERE job_id = ?").run(now, job.job_id);
+				// Dead or unverifiable on parent restart -> mark interrupted (never fake successful completion)
+				this.db.prepare("UPDATE subagent_jobs SET state = 'interrupted', updated_at = ? WHERE job_id = ?").run(now, job.job_id);
+				job.state = "interrupted";
 				orphanedDead.push(job);
 			}
 		}
@@ -698,7 +859,12 @@ export class DurableSubagentLedger {
 			}
 		}
 
-		return { aliveWorkers, orphanedDead, protectedFromVendor: protectedCount };
+		return {
+			aliveWorkers,
+			orphanedDead,
+			protectedFromVendor: protectedCount,
+			preservedTranscripts: preservedCount ?? 0,
+		};
 	}
 
 	// ---- Retention Sweep (Gap 5) ----------------------------------------------
@@ -725,11 +891,27 @@ export class DurableSubagentLedger {
 
 export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void {
 	let ledger: DurableSubagentLedger | undefined;
-	const activeToolCalls = new Map<string, { jobId: string; runId: string; args: any }>();
+	const activeToolCalls = new Map<
+		string,
+		{
+			toolCallId: string;
+			jobId: string;
+			args: any;
+			parentSessionFile: string | null;
+			parentSessionId: string | null;
+			worktreeCwd: string;
+			isAsync: boolean;
+		}
+	>();
 
-	function getLedger(): DurableSubagentLedger {
+	function getLedger(): DurableSubagentLedger | undefined {
 		if (!ledger) {
-			ledger = new DurableSubagentLedger();
+			try {
+				ledger = new DurableSubagentLedger();
+			} catch (err) {
+				console.error("[durable-subagent-recovery] Failed to initialize ledger (fail-closed):", err);
+				return undefined;
+			}
 		}
 		return ledger;
 	}
@@ -737,12 +919,13 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 	pi.on("session_start", (_event, ctx) => {
 		try {
 			const inst = getLedger();
+			if (!inst) return;
 			const report = inst.reconcileOnStartup();
 			inst.sweepRetention();
 
 			if (report.aliveWorkers.length > 0 && ctx.hasUI) {
 				ctx.ui.notify(
-					`Durable subagent recovery: ${report.aliveWorkers.length} live worker(s) protected.`,
+					`Durable subagent recovery: ${report.aliveWorkers.length} live worker(s) tracked.`,
 					"info",
 				);
 			}
@@ -758,28 +941,33 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 		}
 	});
 
-	// Capture subagent invocations before spawn
-	pi.on("tool_call", (event, ctx) => {
-		if (event.toolName === "subagent" && event.input) {
+	// SDK event order: tool_execution_start BEFORE tool_call.
+	// We key by toolCallId and admit the job upon tool_execution_start.
+	pi.on("tool_execution_start", (event, ctx) => {
+		if (event.toolName === "subagent") {
 			try {
+				const args = (event.args || {}) as Record<string, any>;
+
+				// Skip management actions (status, wait, cancel, steer, diff, apply, discard) and dry-run plan
+				if (args.action) return;
+
 				const inst = getLedger();
-				const args = event.input as Record<string, any>;
+				if (!inst) return;
 
-				// Skip management actions (status, wait, cancel, diff, apply, discard)
-				if (args.action && args.action !== "plan") return;
-
+				const toolCallId = event.toolCallId;
 				const now = Date.now();
 				const jobId = `job_${now}_${Math.random().toString(36).slice(2, 8)}`;
 				const isAsync = Boolean(args.async);
 				const runId = args.id || jobId;
 
-				const parentSessionFile = ctx.sessionManager.getSessionFile() || null;
-				const parentSessionId = ctx.sessionManager.getSessionId() || null;
+				const parentSessionFile = ctx.sessionManager?.getSessionFile?.() || null;
+				const parentSessionId = ctx.sessionManager?.getSessionId?.() || null;
 				const worktreeCwd = args.cwd || ctx.cwd;
 
 				inst.recordJobAdmission({
 					jobId,
 					runId,
+					toolCallId,
 					parentSessionFile,
 					parentSessionId,
 					worktreeCwd,
@@ -787,48 +975,56 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 					isAsync,
 				});
 
-				activeToolCalls.set(jobId, { jobId, runId, args });
-			} catch (err) {
-				console.error("[durable-subagent-recovery] tool_call error:", err);
-			}
-		}
-	});
-
-	// Track start
-	pi.on("tool_execution_start", (event, ctx) => {
-		if (event.toolName === "subagent") {
-			try {
-				const inst = getLedger();
-				const entry = Array.from(activeToolCalls.values()).pop();
-				if (entry) {
-					entry.runId = event.toolCallId;
-					inst.updateJobExecution({
-						jobId: entry.jobId,
-						state: "running",
-					});
-				}
+				activeToolCalls.set(toolCallId, {
+					toolCallId,
+					jobId,
+					args,
+					parentSessionFile,
+					parentSessionId,
+					worktreeCwd,
+					isAsync,
+				});
 			} catch (err) {
 				console.error("[durable-subagent-recovery] tool_execution_start error:", err);
 			}
 		}
 	});
 
+	// Capture tool_call to confirm transition to running
+	pi.on("tool_call", (event, _ctx) => {
+		if (event.toolName === "subagent") {
+			try {
+				const entry = activeToolCalls.get(event.toolCallId);
+				if (entry) {
+					const inst = getLedger();
+					if (inst) {
+						inst.updateJobExecution({
+							jobId: entry.jobId,
+							state: "running",
+						});
+					}
+				}
+			} catch (err) {
+				console.error("[durable-subagent-recovery] tool_call error:", err);
+			}
+		}
+	});
+
 	// Track progress & capture child session path
-	pi.on("tool_execution_update", (event, ctx) => {
+	pi.on("tool_execution_update", (event, _ctx) => {
 		if (event.toolName === "subagent" && event.partialResult?.details) {
 			try {
 				const inst = getLedger();
+				if (!inst) return;
+
+				const entry = activeToolCalls.get(event.toolCallId);
 				const details = event.partialResult.details as any;
 				const results = details.results || (details.state ? [details] : []);
 
 				for (const res of results) {
 					if (res.sessionId) {
-						let entry = inst.findJobByToolCallId(event.toolCallId);
-						if (!entry) {
-							const last = Array.from(activeToolCalls.values()).pop();
-							if (last) entry = inst.getJob(last.jobId);
-						}
-						if (entry) {
+						const job = entry ? inst.getJob(entry.jobId) : inst.findJobByToolCallId(event.toolCallId);
+						if (job) {
 							const liveSessionPath = resolveSessionFilePath(inst.config.vendorSessionsDir, res.sessionId);
 							let preservedPath: string | undefined;
 							if (liveSessionPath) {
@@ -836,7 +1032,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 							}
 
 							inst.updateJobExecution({
-								jobId: entry.job_id,
+								jobId: job.job_id,
 								pid: res.process?.pid,
 								childSessionId: res.sessionId,
 								childSessionPath: liveSessionPath,
@@ -854,57 +1050,132 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 	});
 
 	// Track completion vs async launch receipt (Gap 2)
-	pi.on("tool_execution_end", (event, ctx) => {
+	pi.on("tool_execution_end", (event, _ctx) => {
 		if (event.toolName === "subagent") {
 			try {
 				const inst = getLedger();
+				if (!inst) return;
+
+				const entry = activeToolCalls.get(event.toolCallId);
+				if (!entry) return;
+
 				const text = event.result?.content?.[0]?.type === "text" ? event.result.content[0].text : "";
-				const isLaunchReceipt = text.startsWith("Started run ");
+				// Check for async launch receipt: "Started run <runId>." (UUID, run_*, etc.)
+				const launchMatch = text.match(/Started run\s+([0-9a-fA-F-]+|[a-zA-Z0-9_:-]+)/);
 
-				const activeEntry = Array.from(activeToolCalls.values()).pop();
-				if (!activeEntry) return;
-
-				if (isLaunchReceipt || activeEntry.args?.async) {
-					// Async subagent: tool_execution_end is only the LAUNCH receipt, NOT worker completion!
+				if (launchMatch || entry.isAsync) {
+					const nativeRunId = launchMatch ? launchMatch[1] : entry.jobId;
+					inst.updateJobRunId(entry.jobId, nativeRunId);
 					inst.updateJobExecution({
-						jobId: activeEntry.jobId,
+						jobId: entry.jobId,
 						state: "running",
 					});
+
+					// Attempt to bind process identity if native lock was already written
+					const lockRecord = inst.readVendorRunRecord(nativeRunId);
+					if (lockRecord) {
+						let preservedPath: string | undefined;
+						let livePath: string | undefined;
+						if (lockRecord.childSessionId) {
+							livePath = resolveSessionFilePath(inst.config.vendorSessionsDir, lockRecord.childSessionId);
+							if (livePath) {
+								preservedPath = preserveSessionFile(livePath, inst.config.sessionsDir) ?? undefined;
+							}
+						}
+						inst.updateJobExecution({
+							jobId: entry.jobId,
+							pid: lockRecord.process?.pid,
+							childSessionId: lockRecord.childSessionId,
+							childSessionPath: livePath,
+							preservedSessionPath: preservedPath,
+							worktreeCwd: lockRecord.worktreeCwd ?? entry.worktreeCwd,
+						});
+					}
+
+					activeToolCalls.delete(event.toolCallId);
 					return;
 				}
 
 				// Synchronous run settled
 				const isError = Boolean(event.isError);
 				const state = isError ? "failed" : "completed";
+				let childSessionPath: string | undefined;
+				let preservedSessionPath: string | undefined;
+				let childSessionId: string | undefined;
+				let pid: number | undefined;
+
+				if (event.result?.details?.results?.[0]) {
+					const first = event.result.details.results[0];
+					if (first.sessionId) {
+						childSessionId = first.sessionId;
+						childSessionPath = resolveSessionFilePath(inst.config.vendorSessionsDir, childSessionId);
+						if (childSessionPath) {
+							preservedSessionPath = preserveSessionFile(childSessionPath, inst.config.sessionsDir) ?? undefined;
+						}
+					}
+					if (first.process?.pid) {
+						pid = first.process.pid;
+					}
+				}
+
+				if (childSessionId || pid || childSessionPath) {
+					inst.updateJobExecution({
+						jobId: entry.jobId,
+						pid,
+						childSessionId,
+						childSessionPath,
+						preservedSessionPath,
+					});
+				}
+
 				inst.recordJobCompletion({
-					jobId: activeEntry.jobId,
+					jobId: entry.jobId,
 					state,
 					summary: text.slice(0, 500),
 					durationMs: event.durationMs,
 				});
 
-				activeToolCalls.delete(activeEntry.jobId);
+				activeToolCalls.delete(event.toolCallId);
 			} catch (err) {
 				console.error("[durable-subagent-recovery] tool_execution_end error:", err);
 			}
 		}
 	});
 
-	// Track async completions via completion messages
-	pi.on("message_end", (event, ctx) => {
+	// Track async completions via completion messages (supports both subagent-completion and subagent_completion)
+	pi.on("message_end", (event, _ctx) => {
 		try {
 			const msg = event.message as any;
-			if (msg?.customType === "subagent_completion" && msg.details?.runs) {
+			if ((msg?.customType === "subagent-completion" || msg?.customType === "subagent_completion") && msg.details?.runs) {
 				const inst = getLedger();
+				if (!inst) return;
+
 				for (const run of msg.details.runs) {
+					// Correlate by native runId (UUID)
 					const job = inst.findJobByRunId(run.id);
-					if (job && job.state === "running") {
-						const state = run.state === "completed" ? "completed" : run.state === "partial" ? "completed" : "failed";
+					if (job && (job.state === "running" || job.state === "queued" || job.state === "resuming")) {
+						const state = run.state === "completed" || run.state === "partial" ? "completed" : "failed";
+
+						// Preserve transcript if not already preserved
+						if (job.child_session_id && !job.preserved_session_path) {
+							const live = resolveSessionFilePath(inst.config.vendorSessionsDir, job.child_session_id);
+							if (live) {
+								const preserved = preserveSessionFile(live, inst.config.sessionsDir);
+								if (preserved) {
+									inst.updateJobExecution({ jobId: job.job_id, preservedSessionPath: preserved });
+								}
+							}
+						}
+
 						inst.recordJobCompletion({
 							jobId: job.job_id,
 							state,
 							summary: run.preview,
 							durationMs: run.durationMs,
+							usage: {
+								input: run.tokens,
+								cost: run.cost,
+							},
 						});
 					}
 				}
@@ -917,8 +1188,12 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 	// Register /subagent-recover slash command
 	pi.registerCommand("subagent-recover", {
 		description: "Inspect and safely resume interrupted or crashed subagent jobs",
-		handler: async (argsStr: string, cmdCtx: ExtensionContext) => {
+		handler: async (_argsStr: string, cmdCtx: ExtensionContext) => {
 			const inst = getLedger();
+			if (!inst) {
+				cmdCtx.ui?.notify("Durable ledger is unavailable (database fail-closed).", "error");
+				return;
+			}
 			const jobs = inst.listRecoverableJobs();
 
 			if (jobs.length === 0) {
@@ -951,7 +1226,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 				} else if (sessionPath) {
 					lines.push(`  Session File: ${sessionPath}`);
 					lines.push(`  Resume Command:`);
-					lines.push(`    subagent({ resume: "${sessionPath}", cwd: "${job.worktree_cwd}" })`);
+					lines.push(`    ${buildResumeCommand(job, sessionPath)}`);
 				} else {
 					lines.push(`  Session File: (not captured before interruption)`);
 				}
@@ -970,7 +1245,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 	pi.registerTool({
 		name: "subagent_recover",
 		description:
-			"Inspect, claim, and recover interrupted or crashed subagent jobs. Returns exact session paths and explicit resumption parameters. Safe across process restarts and LMK events.",
+			"Inspect, claim, and recover interrupted or crashed subagent jobs. Returns exact session paths and policy-validated resumption specs with required task.",
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("list"),
@@ -982,6 +1257,12 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 		}),
 		execute: async (_toolCallId, params, _signal, _update, toolCtx) => {
 			const inst = getLedger();
+			if (!inst) {
+				return {
+					content: [{ type: "text", text: "Error: Durable ledger is unavailable (database fail-closed)." }],
+					details: { error: "ledger_unavailable" },
+				};
+			}
 			const action = params.action;
 
 			if (action === "list") {
@@ -990,17 +1271,17 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 					const liveness = j.pid
 						? checkProcessLiveness({ pid: j.pid, startTimeTicks: j.start_time_ticks, bootId: j.boot_id })
 						: { alive: false, reason: "not_found" };
+					const sessionPath = j.preserved_session_path || j.child_session_path;
 					return {
 						job_id: j.job_id,
 						run_id: j.run_id,
 						state: j.state,
 						alive: liveness.alive,
 						worktree_cwd: j.worktree_cwd,
-						child_session_path: j.preserved_session_path || j.child_session_path,
+						child_session_path: sessionPath,
 						is_distilled: Boolean(j.is_distilled),
-						resume_command: (j.preserved_session_path || j.child_session_path) && !j.is_distilled
-							? `subagent({ resume: "${j.preserved_session_path || j.child_session_path}", cwd: "${j.worktree_cwd}" })`
-							: undefined,
+						resume_command: sessionPath && !j.is_distilled ? buildResumeCommand(j, sessionPath) : undefined,
+						resume_spec: sessionPath && !j.is_distilled ? buildResumeSpec(j, sessionPath) : undefined,
 					};
 				});
 
@@ -1027,9 +1308,20 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 				const liveness = job.pid
 					? checkProcessLiveness({ pid: job.pid, startTimeTicks: job.start_time_ticks, bootId: job.boot_id })
 					: { alive: false, reason: "not_found" };
+				const sessionPath = job.preserved_session_path || job.child_session_path;
 				return {
-					content: [{ type: "text", text: JSON.stringify({ job, liveness }, null, 2) }],
-					details: { job, liveness },
+					content: [{ type: "text", text: JSON.stringify({
+						job,
+						liveness,
+						resume_command: sessionPath && !job.is_distilled ? buildResumeCommand(job, sessionPath) : undefined,
+						resume_spec: sessionPath && !job.is_distilled ? buildResumeSpec(job, sessionPath) : undefined,
+					}, null, 2) }],
+					details: {
+						job,
+						liveness,
+						resume_command: sessionPath && !job.is_distilled ? buildResumeCommand(job, sessionPath) : undefined,
+						resume_spec: sessionPath && !job.is_distilled ? buildResumeSpec(job, sessionPath) : undefined,
+					},
 				};
 			}
 
@@ -1042,9 +1334,18 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 				}
 				const owner = `session_${toolCtx.cwd}_${process.pid}`;
 				const claim = inst.claimResumeLease(params.job_id, owner);
+				if (!claim.ok) {
+					return {
+						content: [{ type: "text", text: JSON.stringify(claim, null, 2) }],
+						details: claim,
+					};
+				}
+				const sessionPath = claim.job.preserved_session_path || claim.job.child_session_path || "";
+				const resume_command = sessionPath && !claim.job.is_distilled ? buildResumeCommand(claim.job, sessionPath) : undefined;
+				const resume_spec = sessionPath && !claim.job.is_distilled ? buildResumeSpec(claim.job, sessionPath) : undefined;
 				return {
-					content: [{ type: "text", text: JSON.stringify(claim, null, 2) }],
-					details: claim,
+					content: [{ type: "text", text: JSON.stringify({ ...claim, resume_command, resume_spec }, null, 2) }],
+					details: { ...claim, resume_command, resume_spec },
 				};
 			}
 
