@@ -129,18 +129,40 @@ if [[ -f "$src_ext" && "$repo_root" != "$agent_dir" ]]; then
   models_sha=$(calc_sha256 "$agent_dir/models.json")
   backup_file=""
   backup_sha=""
+  backup_mode=""
+
+  # Reject symlinks at destination to prevent hijacking
+  if [[ -L "$dest_ext" ]]; then
+    echo "! Error: Destination $dest_ext is a symlink. Refusing to overwrite symlink directly." >&2
+    exit 1
+  fi
 
   if [[ -n "$dest_sha" && "$dest_sha" == "$src_sha" ]]; then
     echo "✓ Extension already deployed and identical (SHA256: ${src_sha:0:12}…)"
+    # Retain existing verified preimage across same-version reinstall
+    if [[ -f "$manifest_file" ]]; then
+      eval "$(node -e '
+        const fs = require("node:fs");
+        try {
+          const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          console.log("backup_file=\"" + (m.backupPath || "") + "\"");
+          console.log("backup_sha=\"" + (m.backupSha256 || "") + "\"");
+          console.log("backup_mode=\"" + (m.backupMode || "") + "\"");
+        } catch {}
+      ' "$manifest_file")"
+    fi
   else
     if [[ -n "$dest_sha" ]]; then
-      # Backup existing destination atomically
+      # Capture existing destination mode
+      dest_mode=$(stat -c "%a" "$dest_ext" 2>/dev/null || stat -f "%Lp" "$dest_ext" 2>/dev/null || echo "600")
+      # Backup existing destination atomically preserving mode
       backup_file="$durable_dir/durable-subagent-recovery.ts.bak.$(date +%s)"
       cp "$dest_ext" "${backup_file}.tmp.$$"
-      chmod 0600 "${backup_file}.tmp.$$"
+      chmod "$dest_mode" "${backup_file}.tmp.$$"
       mv -f "${backup_file}.tmp.$$" "$backup_file"
       backup_sha="$dest_sha"
-      echo "✓ Backed up existing extension to: $backup_file (SHA256: ${backup_sha:0:12}…)"
+      backup_mode="$dest_mode"
+      echo "✓ Backed up existing extension to: $backup_file (SHA256: ${backup_sha:0:12}…, mode: $backup_mode)"
     fi
 
     # Atomic copy: write to temp file in destination directory, verify hash, atomic rename
@@ -157,7 +179,7 @@ if [[ -f "$src_ext" && "$repo_root" != "$agent_dir" ]]; then
     echo "✓ Atomically deployed extensions/durable-subagent-recovery.ts (SHA256: ${src_sha:0:12}…)"
   fi
 
-  # Record deployment manifest
+  # Record deployment manifest atomically
   node -e '
   const fs = require("node:fs");
   const manifest = {
@@ -166,16 +188,17 @@ if [[ -f "$src_ext" && "$repo_root" != "$agent_dir" ]]; then
     installedSha256: process.argv[2],
     backupPath: process.argv[3] || null,
     backupSha256: process.argv[4] || null,
-    settingsSha256: process.argv[5] || null,
-    authSha256: process.argv[6] || null,
-    modelsSha256: process.argv[7] || null,
+    backupMode: process.argv[5] || null,
+    settingsSha256: process.argv[6] || null,
+    authSha256: process.argv[7] || null,
+    modelsSha256: process.argv[8] || null,
   };
-  const path = process.argv[8];
+  const path = process.argv[9];
   const tmp = path + ".tmp." + process.pid;
   fs.writeFileSync(tmp, JSON.stringify(manifest, null, 2) + "\n", "utf8");
   try { fs.chmodSync(tmp, 0o600); } catch {}
   fs.renameSync(tmp, path);
-  ' "$src_sha" "$src_sha" "$backup_file" "$backup_sha" "$settings_sha" "$auth_sha" "$models_sha" "$manifest_file"
+  ' "$src_sha" "$src_sha" "$backup_file" "$backup_sha" "$backup_mode" "$settings_sha" "$auth_sha" "$models_sha" "$manifest_file"
 fi
 
 echo "All durable subagent recovery preferences verified."

@@ -489,7 +489,7 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 		}
 	});
 
-	await t.test("8. Corrupt DB fail-closed by default + quarantine option (P1-3)", () => {
+	await t.test("8. Corrupt DB fail-closed by default + safe offline refusal (P1-3 & P1-3 repair)", () => {
 		const sandbox = createTestSandbox();
 		try {
 			// Write garbage bytes to database file
@@ -504,7 +504,6 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 						sessionsDir: sandbox.sessionsDir,
 						vendorLocksDir: sandbox.vendorLocksDir,
 						vendorSessionsDir: sandbox.vendorSessionsDir,
-						quarantineCorrupt: false,
 					}),
 				(err) => err instanceof DatabaseCorruptError,
 				"Must fail closed by throwing DatabaseCorruptError",
@@ -515,24 +514,44 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 				"Original corrupt file must remain untouched",
 			);
 
-			// 2. When explicit quarantineCorrupt: true is passed (e.g. from doctor tool)
-			const ledger = new DurableSubagentLedger({
-				durableDir: sandbox.durableDir,
-				dbPath: sandbox.dbPath,
-				sessionsDir: sandbox.sessionsDir,
-				vendorLocksDir: sandbox.vendorLocksDir,
-				vendorSessionsDir: sandbox.vendorSessionsDir,
-				quarantineCorrupt: true,
-			});
+			// 2. Doctor --quarantine-corrupt with active writer refuses mutation
+			const doctorScript = path.join(REPO_ROOT, "bin", "durable-subagent-doctor.sh");
+			const env = {
+				...process.env,
+				PI_DURABLE_DIR: sandbox.durableDir,
+				PI_CODING_AGENT_DIR: sandbox.agentDir,
+			};
 
-			const check = ledger.db.prepare("PRAGMA quick_check").get();
-			assert.equal(check.quick_check, "ok", "Fresh database must be valid and operational");
+			// Start a child holding an open file descriptor on dbPath
+			const fdHolder = spawn(process.execPath, [
+				"-e",
+				`const fs = require("fs"); const fd = fs.openSync("${sandbox.dbPath}", "r"); setInterval(() => {}, 1000);`,
+			]);
 
-			const files = fs.readdirSync(sandbox.durableDir);
-			const corruptBackup = files.find((f) => f.includes("corrupt"));
-			assert.ok(corruptBackup, "Corrupt backup file must be created on explicit quarantine");
+			try {
+				// Give child time to open fd
+				execSync("sleep 0.1");
 
-			ledger.close();
+				const doctorActiveWriterRes = spawnSync(doctorScript, ["--quarantine-corrupt"], { env, encoding: "utf8" });
+				assert.equal(doctorActiveWriterRes.status, 1, "Doctor must refuse when active writer is detected");
+				assert.ok(
+					doctorActiveWriterRes.stderr.includes("Refusing database quarantine: active processes holding open descriptors") ||
+					doctorActiveWriterRes.stdout.includes("Refusing database quarantine"),
+					"Must report active writer refusal",
+				);
+			} finally {
+				fdHolder.kill();
+			}
+
+			// 3. When no active writer, doctor refuses automated mutation and outputs offline diagnostic procedure
+			const doctorOfflineRes = spawnSync(doctorScript, ["--quarantine-corrupt"], { env, encoding: "utf8" });
+			assert.equal(doctorOfflineRes.status, 1, "Doctor refuses automated mutating reset");
+			assert.ok(doctorOfflineRes.stdout.includes("Offline Diagnostic & Manual Recovery Procedure"));
+			assert.equal(
+				fs.readFileSync(sandbox.dbPath, "utf8"),
+				"CORRUPT GARBAGE NOT SQLITE DATA AT ALL",
+				"Database must remain untouched even after offline procedure notice",
+			);
 		} finally {
 			sandbox.cleanup();
 		}
@@ -599,42 +618,74 @@ test("Durable Subagent Recovery Test Suite", async (t) => {
 			const ensureScript = path.join(REPO_ROOT, "bin", "ensure-durable-recovery.sh");
 			const doctorScript = path.join(REPO_ROOT, "bin", "durable-subagent-doctor.sh");
 
-			// 1. Run installer pass 1
 			const env = {
 				...process.env,
 				PI_DURABLE_DIR: sandbox.durableDir,
 				PI_CODING_AGENT_DIR: sandbox.agentDir,
 			};
+
+			// Scenario A: Pre-existing custom TS installed TWICE, then rollback restores exact bytes and mode (P1-2 repair)
+			const extDir = path.join(sandbox.agentDir, "extensions");
+			fs.mkdirSync(extDir, { recursive: true });
+			const deployedExt = path.join(extDir, "durable-subagent-recovery.ts");
+			const customContent = "// PRE-EXISTING CUSTOM SUBAGENT EXTENSION\nexport const customValue = 42;\n";
+			fs.writeFileSync(deployedExt, customContent, "utf8");
+			fs.chmodSync(deployedExt, 0o644);
+			const origCustomSha = execSync(`sha256sum "${deployedExt}"`, { encoding: "utf8" }).split(" ")[0];
+			const origCustomMode = (fs.statSync(deployedExt).mode & 0o777).toString(8);
+			assert.equal(origCustomMode, "644");
+
+			// Install pass 1
 			const pass1 = spawnSync(ensureScript, { env, encoding: "utf8" });
 			assert.equal(pass1.status, 0, `Pass 1 failed: ${pass1.stderr}`);
+			const deployedSha1 = execSync(`sha256sum "${deployedExt}"`, { encoding: "utf8" }).split(" ")[0];
+			assert.notEqual(deployedSha1, origCustomSha, "Deployed extension should be our repo extension");
 
-			const deployedExt = path.join(sandbox.agentDir, "extensions", "durable-subagent-recovery.ts");
-			assert.ok(fs.existsSync(deployedExt), "Extension must be deployed");
-			const hash1 = execSync(`sha256sum "${deployedExt}"`, { encoding: "utf8" }).split(" ")[0];
+			// Verify manifest has backup info
+			const manifestPath = path.join(sandbox.durableDir, "deployment-manifest.json");
+			assert.ok(fs.existsSync(manifestPath), "Manifest must exist");
+			let m1 = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+			assert.equal(m1.backupSha256, origCustomSha, "Manifest must record true original preimage SHA");
+			assert.equal(m1.backupMode, "644", "Manifest must record true original preimage mode");
 
-			// 2. Run installer pass 2 (idempotence)
+			// Install pass 2 (IDEMPOTENT RERUN on same version dest_sha == src_sha)
 			const pass2 = spawnSync(ensureScript, { env, encoding: "utf8" });
 			assert.equal(pass2.status, 0, `Pass 2 failed: ${pass2.stderr}`);
-			const hash2 = execSync(`sha256sum "${deployedExt}"`, { encoding: "utf8" }).split(" ")[0];
-			assert.equal(hash1, hash2, "Installer must be idempotent without modifying file");
+			const deployedSha2 = execSync(`sha256sum "${deployedExt}"`, { encoding: "utf8" }).split(" ")[0];
+			assert.equal(deployedSha1, deployedSha2, "Installer must be idempotent");
 
-			// 3. Modify deployed file, run installer again -> verify backup was created
-			fs.appendFileSync(deployedExt, "\n// modified by user\n");
-			const pass3 = spawnSync(ensureScript, { env, encoding: "utf8" });
-			assert.equal(pass3.status, 0);
+			// CRITICAL ASSERTION: Pass 2 must NOT have overwritten backupPath/backupSha256 with null!
+			let m2 = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+			assert.equal(m2.backupSha256, origCustomSha, "Pass 2 must retain true preimage backupSha256");
+			assert.equal(m2.backupPath, m1.backupPath, "Pass 2 must retain true preimage backupPath");
+			assert.equal(m2.backupMode, "644", "Pass 2 must retain true preimage backupMode");
 
-			const backups = fs.readdirSync(sandbox.durableDir).filter((f) => f.includes(".bak."));
-			assert.ok(backups.length > 0, "Backup must be created when replacing modified extension");
+			// Rollback: MUST restore exact bytes and mode
+			const roll1 = spawnSync(doctorScript, ["--rollback"], { env, encoding: "utf8" });
+			assert.equal(roll1.status, 0, `Rollback failed: ${roll1.stderr}`);
+			assert.ok(roll1.stdout.includes("Restored prior extension"), "Rollback must restore prior version");
 
-			// 4. Test doctor command
-			const doc = spawnSync(doctorScript, { env, encoding: "utf8" });
-			assert.equal(doc.status, 0, `Doctor failed: ${doc.stderr}`);
-			assert.ok(doc.stdout.includes("All health checks passed"), "Doctor should report all checks passed");
+			const restoredSha = execSync(`sha256sum "${deployedExt}"`, { encoding: "utf8" }).split(" ")[0];
+			assert.equal(restoredSha, origCustomSha, "Restored extension must match exact original bytes");
+			const restoredMode = (fs.statSync(deployedExt).mode & 0o777).toString(8);
+			assert.equal(restoredMode, "644", "Restored extension must match exact original mode");
 
-			// 5. Test rollback command
-			const roll = spawnSync(doctorScript, ["--rollback"], { env, encoding: "utf8" });
-			assert.equal(roll.status, 0, `Rollback failed: ${roll.stderr}`);
-			assert.ok(roll.stdout.includes("Restored prior extension"), "Rollback must restore prior version");
+			// Scenario B: Symlink target refusal
+			// Replace deployed extension with a symlink
+			fs.rmSync(deployedExt);
+			const dummyTarget = path.join(sandbox.tmpRoot, "dummy.txt");
+			fs.writeFileSync(dummyTarget, "dummy", "utf8");
+			fs.symlinkSync(dummyTarget, deployedExt);
+
+			// Installer should refuse to overwrite symlink directly
+			const symlinkInstall = spawnSync(ensureScript, { env, encoding: "utf8" });
+			assert.equal(symlinkInstall.status, 1, "Installer must refuse to overwrite symlink directly");
+			assert.ok(symlinkInstall.stderr.includes("is a symlink. Refusing to overwrite symlink directly"));
+
+			// Rollback should also refuse symlink
+			const symlinkRollback = spawnSync(doctorScript, ["--rollback"], { env, encoding: "utf8" });
+			assert.equal(symlinkRollback.status, 1, "Rollback must refuse symlink");
+			assert.ok(symlinkRollback.stderr.includes("is a symlink; refusing rollback"));
 
 			// Verify database is still intact after rollback (runtime jobs never wiped)
 			assert.ok(fs.existsSync(sandbox.dbPath), "Database must be preserved across rollbacks");

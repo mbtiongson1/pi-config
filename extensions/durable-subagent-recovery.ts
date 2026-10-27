@@ -103,7 +103,6 @@ export interface LedgerConfig {
 	vendorLocksDir: string;
 	vendorSessionsDir: string;
 	retentionDays: number;
-	quarantineCorrupt?: boolean;
 	shieldVendorLocks?: boolean; // Opt-in legacy mutation; default false (non-mutating)
 }
 
@@ -370,7 +369,6 @@ export class DurableSubagentLedger {
 		const vendorLocksDir = customConfig?.vendorLocksDir ?? process.env.PI_SUBAGENT_LOCK_DIR ?? join(home, ".pi", "subagent-locks");
 		const vendorSessionsDir = customConfig?.vendorSessionsDir ?? process.env.PI_SUBAGENT_SESSION_DIR ?? join(home, ".pi", "subagent-sessions");
 		const retentionDays = customConfig?.retentionDays ?? 14;
-		const quarantineCorrupt = customConfig?.quarantineCorrupt ?? false;
 		const shieldVendorLocks = customConfig?.shieldVendorLocks ?? false;
 
 		this.config = {
@@ -380,17 +378,16 @@ export class DurableSubagentLedger {
 			vendorLocksDir,
 			vendorSessionsDir,
 			retentionDays,
-			quarantineCorrupt,
 			shieldVendorLocks,
 		};
 
 		mkdirSync(this.config.durableDir, { recursive: true, mode: 0o700 });
 		mkdirSync(this.config.sessionsDir, { recursive: true, mode: 0o700 });
 
-		this.db = this.initDatabase(this.config.dbPath, { quarantineCorrupt: this.config.quarantineCorrupt });
+		this.db = this.initDatabase(this.config.dbPath);
 	}
 
-	private initDatabase(dbPath: string, options?: { quarantineCorrupt?: boolean }): DatabaseSync {
+	private initDatabase(dbPath: string): DatabaseSync {
 		let db: DatabaseSync;
 		try {
 			db = new DatabaseSync(dbPath);
@@ -400,23 +397,9 @@ export class DurableSubagentLedger {
 				throw new Error(`Corrupt database: ${JSON.stringify(check)}`);
 			}
 		} catch (err: any) {
-			if (!options?.quarantineCorrupt) {
-				// Fail-closed: preserve original database, WAL, and SHM untouched (P1-3)
-				// Never silently wipe active admission or lease state.
-				throw new DatabaseCorruptError(`Database corruption detected in ${dbPath}: ${err?.message || String(err)}`, dbPath);
-			}
-			// Explicit quarantine requested (e.g. via doctor tool --quarantine-corrupt)
-			try {
-				if (existsSync(dbPath)) {
-					const ts = Date.now();
-					renameSync(dbPath, `${dbPath}.corrupt.${ts}`);
-					const wal = `${dbPath}-wal`;
-					const shm = `${dbPath}-shm`;
-					if (existsSync(wal)) renameSync(wal, `${wal}.corrupt.${ts}`);
-					if (existsSync(shm)) renameSync(shm, `${shm}.corrupt.${ts}`);
-				}
-			} catch {}
-			db = new DatabaseSync(dbPath);
+			// Fail-closed: preserve original database, WAL, and SHM untouched (P1-3)
+			// Never silently wipe active admission or lease state. Automated mutating resets are prohibited.
+			throw new DatabaseCorruptError(`Database corruption detected in ${dbPath}: ${err?.message || String(err)}`, dbPath);
 		}
 
 		// Durability and security settings

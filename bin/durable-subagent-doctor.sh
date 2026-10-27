@@ -21,29 +21,42 @@ calc_sha256() {
 # Mode: --quarantine-corrupt
 # ----------------------------------------------------------------------------
 if [[ "${1:-}" == "--quarantine-corrupt" ]]; then
-  echo "=== Durable Subagent Recovery: Quarantine Corrupt Database ==="
-  if [[ -f "$db_path" ]]; then
-    ts=$(date +%s)
-    corrupt_db="${db_path}.corrupt.${ts}"
-    mv -f "$db_path" "$corrupt_db"
-    [[ -f "${db_path}-wal" ]] && mv -f "${db_path}-wal" "${db_path}-wal.corrupt.${ts}"
-    [[ -f "${db_path}-shm" ]] && mv -f "${db_path}-shm" "${db_path}-shm.corrupt.${ts}"
-    echo "✓ Quarantined corrupt database files to: $corrupt_db"
-    
-    # Re-initialize clean DB
-    node -e '
-    const { DatabaseSync } = require("node:sqlite");
-    const db = new DatabaseSync(process.argv[1]);
-    db.exec("PRAGMA journal_mode = WAL;");
-    db.exec("PRAGMA synchronous = FULL;");
-    db.close();
-    ' "$db_path"
-    chmod 0600 "$db_path"
-    echo "✓ Initialized clean database with WAL mode and FULL durability."
-  else
-    echo "No database file exists at $db_path."
+  echo "=== Durable Subagent Recovery: Quarantine Inspection ==="
+
+  # Active writer detection: inspect /proc/<pid>/fd for any open references to database
+  active_writers=()
+  for p in /proc/[0-9]*; do
+    pid="${p#/proc/}"
+    if [[ "$pid" == "$$" || "$pid" == "$PPID" ]]; then continue; fi
+    if [[ -d "$p/fd" ]]; then
+      for fd in "$p/fd"/*; do
+        target=$(readlink -f "$fd" 2>/dev/null || true)
+        if [[ "$target" == "$db_path"* ]]; then
+          active_writers+=("$pid")
+          break
+        fi
+      done
+    fi
+  done
+
+  if [[ ${#active_writers[@]} -gt 0 ]]; then
+    echo "! Refusing database quarantine: active processes holding open descriptors on $db_path!" >&2
+    echo "  Active writer PIDs: ${active_writers[*]}" >&2
+    echo "  Automated quarantine while writers are active causes split-brain database corruption." >&2
+    exit 1
   fi
-  exit 0
+
+  echo "! Automated mutating database quarantine is disabled to prevent split-brain state loss."
+  echo "! The ledger remains fail-closed, preserving DB, WAL, and SHM files untouched."
+  echo ""
+  echo "Offline Diagnostic & Manual Recovery Procedure:"
+  echo "1. Verify all Pi and worker processes are stopped: pgrep -f 'pi' || true"
+  echo "2. Confirm no open descriptors: lsof '$db_path' 2>/dev/null || true"
+  echo "3. Make a manual verified copy of: $db_path, ${db_path}-wal, ${db_path}-shm"
+  echo "4. Inspect database integrity using sqlite3 CLI:"
+  echo "   sqlite3 '$db_path' 'PRAGMA integrity_check;'"
+  echo "   sqlite3 '$db_path' '.recover' > /path/to/recovered.sql"
+  exit 1
 fi
 
 # ----------------------------------------------------------------------------
@@ -54,9 +67,15 @@ if [[ "${1:-}" == "--rollback" ]]; then
   installed_ext="$agent_dir/extensions/durable-subagent-recovery.ts"
   force="${2:-}"
 
-  if [[ ! -f "$installed_ext" ]]; then
+  if [[ ! -e "$installed_ext" && ! -L "$installed_ext" ]]; then
     echo "Extension was not deployed in $agent_dir/extensions"
     exit 0
+  fi
+
+  # Reject symlinks to prevent hijacking
+  if [[ -L "$installed_ext" ]]; then
+    echo "! Error: $installed_ext is a symlink; refusing rollback." >&2
+    exit 1
   fi
 
   cur_ext_sha=$(calc_sha256 "$installed_ext")
@@ -70,6 +89,7 @@ if [[ "${1:-}" == "--rollback" ]]; then
         console.log("manifest_installed_sha=\"" + (m.installedSha256 || "") + "\"");
         console.log("manifest_backup_path=\"" + (m.backupPath || "") + "\"");
         console.log("manifest_backup_sha=\"" + (m.backupSha256 || "") + "\"");
+        console.log("manifest_backup_mode=\"" + (m.backupMode || "") + "\"");
         console.log("manifest_settings_sha=\"" + (m.settingsSha256 || "") + "\"");
         console.log("manifest_auth_sha=\"" + (m.authSha256 || "") + "\"");
         console.log("manifest_models_sha=\"" + (m.modelsSha256 || "") + "\"");
@@ -96,19 +116,29 @@ if [[ "${1:-}" == "--rollback" ]]; then
       echo "Notice: settings.json modified since extension deployment (settings preserved)."
     fi
 
-    if [[ -n "$manifest_backup_path" && -f "$manifest_backup_path" ]]; then
-      # Verify backup hash before restoring
-      cur_bak_sha=$(calc_sha256 "$manifest_backup_path")
-      if [[ -n "$manifest_backup_sha" && "$cur_bak_sha" != "$manifest_backup_sha" && "$force" != "--force" ]]; then
-        echo "! Error: Backup hash mismatch for $manifest_backup_path" >&2
+    if [[ -n "$manifest_backup_path" ]]; then
+      if [[ -L "$manifest_backup_path" ]]; then
+        echo "! Error: Backup file $manifest_backup_path is a symlink; refusing rollback." >&2
         exit 1
       fi
-      # Atomic restore
-      tmp_restore="${installed_ext}.tmp.$$"
-      cp "$manifest_backup_path" "$tmp_restore"
-      chmod 0600 "$tmp_restore"
-      mv -f "$tmp_restore" "$installed_ext"
-      echo "✓ Restored prior extension from: $manifest_backup_path"
+      if [[ -f "$manifest_backup_path" ]]; then
+        # Verify backup hash before restoring
+        cur_bak_sha=$(calc_sha256 "$manifest_backup_path")
+        if [[ -n "$manifest_backup_sha" && "$cur_bak_sha" != "$manifest_backup_sha" && "$force" != "--force" ]]; then
+          echo "! Error: Backup hash mismatch for $manifest_backup_path" >&2
+          exit 1
+        fi
+        # Atomic restore preserving exact mode
+        tmp_restore="${installed_ext}.tmp.$$"
+        cp "$manifest_backup_path" "$tmp_restore"
+        restore_mode="${manifest_backup_mode:-600}"
+        chmod "$restore_mode" "$tmp_restore"
+        mv -f "$tmp_restore" "$installed_ext"
+        echo "✓ Restored prior extension from: $manifest_backup_path (mode: $restore_mode)"
+      else
+        rm -f "$installed_ext"
+        echo "✓ Removed extension: $installed_ext (backup missing)"
+      fi
     else
       rm -f "$installed_ext"
       echo "✓ Removed extension: $installed_ext (no prior backup)"
@@ -117,7 +147,7 @@ if [[ "${1:-}" == "--rollback" ]]; then
   else
     # Fallback if manifest is missing: find latest backup file in durable dir
     latest_bak=$(ls -t "$durable_dir"/durable-subagent-recovery.ts.bak.* 2>/dev/null | head -n 1 || true)
-    if [[ -n "$latest_bak" && -f "$latest_bak" ]]; then
+    if [[ -n "$latest_bak" && -f "$latest_bak" && ! -L "$latest_bak" ]]; then
       tmp_restore="${installed_ext}.tmp.$$"
       cp "$latest_bak" "$tmp_restore"
       chmod 0600 "$tmp_restore"
