@@ -82,7 +82,7 @@ class TestDurableRecoveryStructure(unittest.TestCase):
             data = json.loads(res_doctor.stdout)
             self.assertTrue(data["environment"]["sqliteAvailable"])
             self.assertEqual(data["database"]["integrityCheck"], "ok")
-            self.assertEqual(data["database"]["schemaVersion"], 1)
+            self.assertEqual(data["database"]["schemaVersion"], 2)
             self.assertEqual(data["permissions"]["durableDir"], "700")
             self.assertEqual(data["permissions"]["databaseFile"], "600")
             self.assertEqual(len(data["issues"]), 0)

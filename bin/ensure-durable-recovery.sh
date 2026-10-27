@@ -44,9 +44,10 @@ try {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA synchronous = FULL;");
   
-  // Ensure schema v1
+  // Ensure schema v2
   const verRow = db.prepare("PRAGMA user_version").get();
-  if (!verRow || verRow.user_version < 1) {
+  const curVer = verRow ? Number(verRow.user_version) : 0;
+  if (curVer < 1) {
     db.exec(`
       CREATE TABLE IF NOT EXISTS subagent_jobs (
         job_id TEXT PRIMARY KEY,
@@ -80,15 +81,42 @@ try {
         last_checkpoint_text TEXT,
         usage_input INTEGER,
         usage_output INTEGER,
-        usage_cost REAL
+        usage_cost REAL,
+        backend TEXT,
+        profile TEXT,
+        model TEXT,
+        thinking TEXT,
+        tools_json TEXT,
+        agent TEXT,
+        resumable INTEGER NOT NULL DEFAULT 1,
+        unresumable_reason TEXT,
+        takeover_reservation_id TEXT,
+        superseded_by_job_id TEXT,
+        resumed_from_job_id TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_jobs_state ON subagent_jobs(state);
       CREATE INDEX IF NOT EXISTS idx_jobs_run_id ON subagent_jobs(run_id);
       CREATE INDEX IF NOT EXISTS idx_jobs_child_session ON subagent_jobs(child_session_id);
       CREATE INDEX IF NOT EXISTS idx_jobs_parent ON subagent_jobs(parent_session_file);
       CREATE INDEX IF NOT EXISTS idx_jobs_updated ON subagent_jobs(updated_at);
-      PRAGMA user_version = 1;
+      CREATE INDEX IF NOT EXISTS idx_jobs_resumable ON subagent_jobs(resumable);
+      CREATE INDEX IF NOT EXISTS idx_jobs_superseded ON subagent_jobs(superseded_by_job_id);
+      CREATE INDEX IF NOT EXISTS idx_jobs_resumed_from ON subagent_jobs(resumed_from_job_id);
+      PRAGMA user_version = 2;
     `);
+  } else if (curVer < 2) {
+    const cols = [
+      "backend TEXT", "profile TEXT", "model TEXT", "thinking TEXT", "tools_json TEXT", "agent TEXT",
+      "resumable INTEGER NOT NULL DEFAULT 1", "unresumable_reason TEXT",
+      "takeover_reservation_id TEXT", "superseded_by_job_id TEXT", "resumed_from_job_id TEXT"
+    ];
+    for (const c of cols) {
+      try { db.exec("ALTER TABLE subagent_jobs ADD COLUMN " + c + ";"); } catch {}
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_resumable ON subagent_jobs(resumable);");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_superseded ON subagent_jobs(superseded_by_job_id);");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_resumed_from ON subagent_jobs(resumed_from_job_id);");
+    db.exec("PRAGMA user_version = 2;");
   }
   
   db.close();

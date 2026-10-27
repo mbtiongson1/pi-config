@@ -4,6 +4,7 @@ import {
 	chmodSync,
 	copyFileSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -69,7 +70,7 @@ export interface SubagentJobRecord {
 	parent_session_id: string | null;
 	worktree_cwd: string;
 	spec_json: string;
-	state: "queued" | "running" | "completed" | "failed" | "interrupted" | "timed_out" | "orphaned_dead" | "resuming";
+	state: "queued" | "running" | "completed" | "failed" | "interrupted" | "timed_out" | "orphaned_dead" | "resuming" | "superseded";
 	is_async: number; // 0 or 1
 	pid: number | null;
 	start_time_ticks: number | null;
@@ -94,6 +95,19 @@ export interface SubagentJobRecord {
 	usage_input: number | null;
 	usage_output: number | null;
 	usage_cost: number | null;
+	// Execution constraints & matrix support (Defects 1 & 5)
+	backend: string | null;
+	profile: string | null;
+	model: string | null;
+	thinking: string | null;
+	tools_json: string | null;
+	agent: string | null;
+	resumable: number; // 0 or 1
+	unresumable_reason: string | null;
+	// Lineage and takeover reservation (Defect 2)
+	takeover_reservation_id: string | null;
+	superseded_by_job_id: string | null;
+	resumed_from_job_id: string | null;
 }
 
 export interface LedgerConfig {
@@ -110,6 +124,13 @@ export interface ResumeSpec {
 	task: string;
 	resume: string;
 	cwd: string;
+	backend?: string;
+	profile?: "explore" | "review" | "general";
+	model?: string;
+	thinking?: string;
+	tools?: string[];
+	agent?: string;
+	system_prompt?: string;
 }
 
 // ============================================================================
@@ -329,28 +350,78 @@ export function protectVendorOrphanRecords(
 }
 
 // ============================================================================
-// Resume Command Spec Generation (Policy Validated)
+// Resume Command Spec Generation (Policy Validated & Matrix Checked)
 // ============================================================================
 
 export function buildResumeSpec(job: SubagentJobRecord, preservedSessionPath: string): ResumeSpec {
-	let originalTask = "Resume interrupted task";
+	if (job.resumable === 0) {
+		throw new Error(`Job ${job.job_id} is not resumable: ${job.unresumable_reason || "unsupported configuration"}`);
+	}
+
+	let spec: any = {};
 	try {
-		const spec = JSON.parse(job.spec_json || "{}");
-		if (spec.task && typeof spec.task === "string" && spec.task.trim()) {
-			originalTask = spec.task.trim();
-		}
+		spec = JSON.parse(job.spec_json || "{}");
 	} catch {}
 
-	return {
+	// matrix: backend MUST be "pi"
+	const backend = job.backend || spec.backend || "pi";
+	if (backend !== "pi") {
+		throw new Error(`Job ${job.job_id} uses unsupported backend '${backend}': only 'pi' session transcripts can be resumed`);
+	}
+
+	// matrix: worktree cwd MUST exist and NOT be a symlink
+	if (!job.worktree_cwd || !existsSync(job.worktree_cwd)) {
+		throw new Error(`Cannot resume job ${job.job_id}: worktree directory does not exist (${job.worktree_cwd})`);
+	}
+	try {
+		if (lstatSync(job.worktree_cwd).isSymbolicLink()) {
+			throw new Error(`Cannot resume job ${job.job_id}: worktree directory is a symlink (${job.worktree_cwd})`);
+		}
+	} catch (e: any) {
+		throw new Error(`Cannot resume job ${job.job_id}: invalid worktree directory: ${e?.message || String(e)}`);
+	}
+
+	// profile check: must not widen! Old rows missing proof fail closed!
+	const profile = job.profile || spec.profile;
+	if (!profile) {
+		throw new Error(
+			`Cannot safely resume job ${job.job_id}: missing proof of execution profile in job record. Silent widening to 'general' is prohibited to prevent privilege escalation. Manual verification required.`,
+		);
+	}
+
+	let originalTask = "Resume interrupted task";
+	if (spec.task && typeof spec.task === "string" && spec.task.trim()) {
+		originalTask = spec.task.trim();
+	}
+
+	const tools = job.tools_json
+		? JSON.parse(job.tools_json)
+		: Array.isArray(spec.tools) ? spec.tools : undefined;
+	const model = job.model || spec.model || undefined;
+	const thinking = job.thinking || spec.thinking || undefined;
+	const agent = job.agent || spec.agent || undefined;
+	const systemPrompt = spec.system_prompt || undefined;
+
+	const resumeSpec: ResumeSpec = {
 		task: `Resume: ${originalTask}`,
 		resume: preservedSessionPath,
 		cwd: job.worktree_cwd,
+		backend: "pi",
+		profile: profile as any,
 	};
+
+	if (tools && tools.length > 0) resumeSpec.tools = tools;
+	if (model) resumeSpec.model = model;
+	if (thinking) resumeSpec.thinking = thinking;
+	if (agent) resumeSpec.agent = agent;
+	if (systemPrompt) resumeSpec.system_prompt = systemPrompt;
+
+	return resumeSpec;
 }
 
 export function buildResumeCommand(job: SubagentJobRecord, preservedSessionPath: string): string {
 	const spec = buildResumeSpec(job, preservedSessionPath);
-	return `subagent({ task: ${JSON.stringify(spec.task)}, resume: ${JSON.stringify(spec.resume)}, cwd: ${JSON.stringify(spec.cwd)} })`;
+	return `subagent(${JSON.stringify(spec, null, 2)})`;
 }
 
 // ============================================================================
@@ -462,7 +533,18 @@ export class DurableSubagentLedger {
 					last_checkpoint_text TEXT,
 					usage_input INTEGER,
 					usage_output INTEGER,
-					usage_cost REAL
+					usage_cost REAL,
+					backend TEXT,
+					profile TEXT,
+					model TEXT,
+					thinking TEXT,
+					tools_json TEXT,
+					agent TEXT,
+					resumable INTEGER NOT NULL DEFAULT 1,
+					unresumable_reason TEXT,
+					takeover_reservation_id TEXT,
+					superseded_by_job_id TEXT,
+					resumed_from_job_id TEXT
 				);
 
 				CREATE INDEX IF NOT EXISTS idx_jobs_state ON subagent_jobs(state);
@@ -470,8 +552,34 @@ export class DurableSubagentLedger {
 				CREATE INDEX IF NOT EXISTS idx_jobs_child_session ON subagent_jobs(child_session_id);
 				CREATE INDEX IF NOT EXISTS idx_jobs_parent ON subagent_jobs(parent_session_file);
 				CREATE INDEX IF NOT EXISTS idx_jobs_updated ON subagent_jobs(updated_at);
-				PRAGMA user_version = 1;
+				CREATE INDEX IF NOT EXISTS idx_jobs_resumable ON subagent_jobs(resumable);
+				CREATE INDEX IF NOT EXISTS idx_jobs_superseded ON subagent_jobs(superseded_by_job_id);
+				CREATE INDEX IF NOT EXISTS idx_jobs_resumed_from ON subagent_jobs(resumed_from_job_id);
+				PRAGMA user_version = 2;
 			`);
+		} else if (currentVersion < 2) {
+			const columns = [
+				"backend TEXT",
+				"profile TEXT",
+				"model TEXT",
+				"thinking TEXT",
+				"tools_json TEXT",
+				"agent TEXT",
+				"resumable INTEGER NOT NULL DEFAULT 1",
+				"unresumable_reason TEXT",
+				"takeover_reservation_id TEXT",
+				"superseded_by_job_id TEXT",
+				"resumed_from_job_id TEXT",
+			];
+			for (const col of columns) {
+				try {
+					db.exec(`ALTER TABLE subagent_jobs ADD COLUMN ${col};`);
+				} catch {}
+			}
+			db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_resumable ON subagent_jobs(resumable);");
+			db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_superseded ON subagent_jobs(superseded_by_job_id);");
+			db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_resumed_from ON subagent_jobs(resumed_from_job_id);");
+			db.exec("PRAGMA user_version = 2;");
 		}
 	}
 
@@ -492,18 +600,70 @@ export class DurableSubagentLedger {
 		worktreeCwd: string;
 		spec: any;
 		isAsync: boolean;
+		effectiveConstraints?: {
+			backend?: string;
+			profile?: string;
+			model?: string;
+			thinking?: string;
+			tools?: string[];
+			agent?: string;
+		};
 	}): SubagentJobRecord {
 		const now = Date.now();
-		const specJson = JSON.stringify(params.spec);
+		const spec = params.spec || {};
+		const specJson = JSON.stringify(spec);
+
+		const backend = params.effectiveConstraints?.backend || spec.backend || "pi";
+		const profile = params.effectiveConstraints?.profile || spec.profile || "general";
+		const model = params.effectiveConstraints?.model || spec.model || null;
+		const thinking = params.effectiveConstraints?.thinking || spec.thinking || null;
+		const tools = params.effectiveConstraints?.tools || (Array.isArray(spec.tools) ? spec.tools : null);
+		const toolsJson = tools ? JSON.stringify(tools) : null;
+		const agent = params.effectiveConstraints?.agent || spec.agent || null;
+
+		let resumable = 1;
+		let unresumableReason: string | null = null;
+
+		if (backend !== "pi") {
+			resumable = 0;
+			unresumableReason = `Unsupported backend '${backend}': durable session transcript recovery is only supported for 'pi' backend`;
+		} else if (spec.isolation === "worktree" || params.worktreeCwd.includes("/.pi/subagent-worktrees/")) {
+			resumable = 0;
+			unresumableReason = "Managed temporary worktree (isolation: 'worktree') is purged on parent restart; uncommitted WIP cannot be restored. Use permanent shared/isolated worktree for durable recovery.";
+		} else {
+			try {
+				if (!existsSync(params.worktreeCwd)) {
+					resumable = 0;
+					unresumableReason = `Worktree directory does not exist: ${params.worktreeCwd}`;
+				} else if (lstatSync(params.worktreeCwd).isSymbolicLink()) {
+					resumable = 0;
+					unresumableReason = `Worktree cwd is a symlink: ${params.worktreeCwd}; symlink worktrees are not supported`;
+				}
+			} catch (e: any) {
+				resumable = 0;
+				unresumableReason = `Worktree cwd validation failed: ${e?.message || String(e)}`;
+			}
+		}
+
 		const stmt = this.db.prepare(`
 			INSERT INTO subagent_jobs (
 				job_id, run_id, tool_call_id, parent_session_file, parent_session_id,
-				worktree_cwd, spec_json, state, is_async, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
+				worktree_cwd, spec_json, state, is_async, created_at, updated_at,
+				backend, profile, model, thinking, tools_json, agent,
+				resumable, unresumable_reason
+			) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(job_id) DO UPDATE SET
 				run_id = excluded.run_id,
 				spec_json = excluded.spec_json,
-				updated_at = excluded.updated_at
+				updated_at = excluded.updated_at,
+				backend = excluded.backend,
+				profile = excluded.profile,
+				model = excluded.model,
+				thinking = excluded.thinking,
+				tools_json = excluded.tools_json,
+				agent = excluded.agent,
+				resumable = excluded.resumable,
+				unresumable_reason = excluded.unresumable_reason
 		`);
 		stmt.run(
 			params.jobId,
@@ -516,6 +676,14 @@ export class DurableSubagentLedger {
 			params.isAsync ? 1 : 0,
 			now,
 			now,
+			backend,
+			profile,
+			model,
+			thinking,
+			toolsJson,
+			agent,
+			resumable,
+			unresumableReason,
 		);
 		return this.getJob(params.jobId)!;
 	}
@@ -684,6 +852,12 @@ export class DurableSubagentLedger {
 			if (!row) {
 				this.db.exec("ROLLBACK;");
 				return { ok: false, reason: "job_not_found" };
+			}
+
+			// Refuse resume if marked unresumable (matrix support: non-pi backend, managed worktree, missing/symlink cwd)
+			if (row.resumable === 0) {
+				this.db.exec("ROLLBACK;");
+				return { ok: false, reason: "job_not_resumable", message: row.unresumable_reason || "unsupported configuration", job: row };
 			}
 
 			// Refuse resume if process is still running or unverifiable (P1-2)
@@ -947,6 +1121,15 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 				const parentSessionId = ctx.sessionManager?.getSessionId?.() || null;
 				const worktreeCwd = args.cwd || ctx.cwd;
 
+				const effectiveConstraints = {
+					backend: args.backend || "pi",
+					profile: args.profile || "general",
+					model: args.model || (ctx.model?.provider ? `${ctx.model.provider}/${ctx.model.id}` : ctx.model?.id) || undefined,
+					thinking: args.thinking || ctx.thinkingLevel || undefined,
+					tools: Array.isArray(args.tools) ? args.tools : undefined,
+					agent: args.agent || undefined,
+				};
+
 				inst.recordJobAdmission({
 					jobId,
 					runId,
@@ -956,6 +1139,7 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 					worktreeCwd,
 					spec: args,
 					isAsync,
+					effectiveConstraints,
 				});
 
 				activeToolCalls.set(toolCallId, {
@@ -1206,10 +1390,18 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 					if (job.last_checkpoint_text) {
 						lines.push(`  Last Checkpoint: "${job.last_checkpoint_text.slice(0, 100)}..."`);
 					}
+				} else if (job.resumable === 0) {
+					lines.push(`  ⚠ Unresumable: ${job.unresumable_reason}`);
 				} else if (sessionPath) {
 					lines.push(`  Session File: ${sessionPath}`);
-					lines.push(`  Resume Command:`);
-					lines.push(`    ${buildResumeCommand(job, sessionPath)}`);
+					lines.push(`  Profile: ${job.profile || "unknown"} | Route: ${job.model || "inherited"}`);
+					try {
+						const cmd = buildResumeCommand(job, sessionPath);
+						lines.push(`  Resume Command:`);
+						lines.push(`    ${cmd}`);
+					} catch (e: any) {
+						lines.push(`  ⚠ Resume spec error: ${e?.message || String(e)}`);
+					}
 				} else {
 					lines.push(`  Session File: (not captured before interruption)`);
 				}
@@ -1255,6 +1447,21 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 						? checkProcessLiveness({ pid: j.pid, startTimeTicks: j.start_time_ticks, bootId: j.boot_id })
 						: { alive: false, reason: "not_found" };
 					const sessionPath = j.preserved_session_path || j.child_session_path;
+					let resumeCommand: string | undefined;
+					let resumeSpec: ResumeSpec | undefined;
+					let canBeResumed = Boolean(j.resumable !== 0 && sessionPath && !j.is_distilled);
+					let reasonUnresumable = j.unresumable_reason;
+
+					if (canBeResumed && sessionPath) {
+						try {
+							resumeSpec = buildResumeSpec(j, sessionPath);
+							resumeCommand = buildResumeCommand(j, sessionPath);
+						} catch (e: any) {
+							canBeResumed = false;
+							reasonUnresumable = e?.message || String(e);
+						}
+					}
+
 					return {
 						job_id: j.job_id,
 						run_id: j.run_id,
@@ -1263,8 +1470,13 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 						worktree_cwd: j.worktree_cwd,
 						child_session_path: sessionPath,
 						is_distilled: Boolean(j.is_distilled),
-						resume_command: sessionPath && !j.is_distilled ? buildResumeCommand(j, sessionPath) : undefined,
-						resume_spec: sessionPath && !j.is_distilled ? buildResumeSpec(j, sessionPath) : undefined,
+						profile: j.profile,
+						backend: j.backend,
+						model: j.model,
+						resumable: canBeResumed,
+						unresumable_reason: reasonUnresumable,
+						resume_command: resumeCommand,
+						resume_spec: resumeSpec,
 					};
 				});
 
@@ -1292,18 +1504,37 @@ export default function registerDurableSubagentRecovery(pi: ExtensionAPI): void 
 					? checkProcessLiveness({ pid: job.pid, startTimeTicks: job.start_time_ticks, bootId: job.boot_id })
 					: { alive: false, reason: "not_found" };
 				const sessionPath = job.preserved_session_path || job.child_session_path;
+				let resumeCommand: string | undefined;
+				let resumeSpec: ResumeSpec | undefined;
+				let canBeResumed = Boolean(job.resumable !== 0 && sessionPath && !job.is_distilled);
+				let reasonUnresumable = job.unresumable_reason;
+
+				if (canBeResumed && sessionPath) {
+					try {
+						resumeSpec = buildResumeSpec(job, sessionPath);
+						resumeCommand = buildResumeCommand(job, sessionPath);
+					} catch (e: any) {
+						canBeResumed = false;
+						reasonUnresumable = e?.message || String(e);
+					}
+				}
+
 				return {
 					content: [{ type: "text", text: JSON.stringify({
 						job,
 						liveness,
-						resume_command: sessionPath && !job.is_distilled ? buildResumeCommand(job, sessionPath) : undefined,
-						resume_spec: sessionPath && !job.is_distilled ? buildResumeSpec(job, sessionPath) : undefined,
+						resumable: canBeResumed,
+						unresumable_reason: reasonUnresumable,
+						resume_command: resumeCommand,
+						resume_spec: resumeSpec,
 					}, null, 2) }],
 					details: {
 						job,
 						liveness,
-						resume_command: sessionPath && !job.is_distilled ? buildResumeCommand(job, sessionPath) : undefined,
-						resume_spec: sessionPath && !job.is_distilled ? buildResumeSpec(job, sessionPath) : undefined,
+						resumable: canBeResumed,
+						unresumable_reason: reasonUnresumable,
+						resume_command: resumeCommand,
+						resume_spec: resumeSpec,
 					},
 				};
 			}
