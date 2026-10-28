@@ -77,7 +77,7 @@ by diffing agents, extensions, prompts, and bin.
 | `agents/` | Custom subagents (advisor, planner, reviewer, scout, worker) |
 | `agents/*bunny*.md` | Bunny family (MiniMax M3.1 Flash) — scouts and workers with pinned thinking levels |
 | `extensions/` | Custom pi extensions (including `/statusline` bloat manager and last-message/cache status) |
-| `extensions/masthead.ts` | Topmost masthead header showing live session title, start timestamp, and current GitHub PR |
+| `extensions/masthead.ts` | Topmost Pi header showing live session title, start timestamp, and current GitHub PR |
 | `extensions/bunny-router.ts` | Registers the stable `bunny/minimax-m3.1-flash` virtual model and resolves its physical route per request |
 | `extensions/bunny-route.mjs` | Pure, testable Bunny routing core (schedule, credit gates, failure diagnostics) |
 | `statusline.json.template` | Default statusline settings (`showExtensions: false` clean default) |
@@ -187,16 +187,16 @@ The default Pi template opts `antigravity/gemini-3.8-flash` into the extension's
 
 ## UI Extensions
 
-### Masthead Header (`/masthead`)
-Topmost masthead header replacing default startup banner with live session and repository context:
+### Pi Header (`/header`, `/masthead`)
+Topmost header replacing default startup banner with live session and repository context:
 - **Session Title**: Live summarized session title derived from custom session name or initial prompt.
 - **Start Timestamp**: Localized session creation date and time (`YYYY-MM-DD HH:mm:ss`).
 - **Live PR Status**: Asynchronously checks GitHub PR status (`gh pr view`) and branch name without blocking TUI render.
-- **Responsive Layout**: Formats a clean border box with color-coded status badges, adapting cleanly to narrow/mobile terminal widths.
+- **Responsive Layout**: Formats a clean `π Pi` border box with color-coded status badges, adapting cleanly to narrow/mobile terminal widths.
 - **Commands**:
-  - `/masthead` / `/masthead refresh` — Refresh PR information and re-render masthead
-  - `/masthead toggle` — Toggle masthead visibility (switch between masthead and default header)
-  - `/masthead status` — View active session title, start time, and PR metadata
+  - `/header` / `/header refresh` — Refresh PR information and re-render header (or `/masthead`)
+  - `/header toggle` — Toggle header visibility (switch between Pi header and default banner)
+  - `/header status` — View active session title, start time, and PR metadata
 
 ---
 

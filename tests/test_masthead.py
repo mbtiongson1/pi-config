@@ -21,6 +21,7 @@ class TestMastheadExtension(unittest.TestCase):
         self.assertIn("export default function mastheadExtension", source)
         self.assertIn("class MastheadComponent", source)
         self.assertIn("ctx.ui.setHeader", source)
+        self.assertIn('pi.registerCommand("header"', source)
         self.assertIn('pi.registerCommand("masthead"', source)
         self.assertIn("fetchGitPr", source)
         self.assertIn("resolveSessionTitle", source)

@@ -192,7 +192,7 @@ export class MastheadComponent implements Component {
 			];
 		}
 
-		const badgeText = " π Pi Masthead ";
+		const badgeText = " π Pi ";
 		const topPrefix = "┌─" + badgeText;
 		const topDashesCount = Math.max(0, width - visibleWidth(topPrefix) - 1);
 		const topBorder =
@@ -380,45 +380,52 @@ export default function mastheadExtension(pi: ExtensionAPI): void {
 		activeTui = undefined;
 	});
 
-	pi.registerCommand("masthead", {
-		description: "Control topmost masthead header (refresh | toggle | status)",
-		handler: async (rawArgs: string, ctx: ExtensionCommandContext) => {
-			const sub = rawArgs.trim().toLowerCase();
+	const handleHeaderCommand = async (rawArgs: string, ctx: ExtensionCommandContext) => {
+		const sub = rawArgs.trim().toLowerCase();
 
-			if (sub === "toggle") {
-				state.enabled = !state.enabled;
-				if (state.enabled) {
-					ctx.ui.setHeader((tui, theme) => {
-						activeTui = tui;
-						return new MastheadComponent(state, theme);
-					});
-					ctx.ui.notify("Masthead enabled", "info");
-				} else {
-					ctx.ui.setHeader(undefined);
-					ctx.ui.notify("Masthead disabled (default header restored)", "info");
-				}
-				activeTui?.requestRender();
-				return;
+		if (sub === "toggle") {
+			state.enabled = !state.enabled;
+			if (state.enabled) {
+				ctx.ui.setHeader((tui, theme) => {
+					activeTui = tui;
+					return new MastheadComponent(state, theme);
+				});
+				ctx.ui.notify("Pi header enabled", "info");
+			} else {
+				ctx.ui.setHeader(undefined);
+				ctx.ui.notify("Pi header disabled (default header restored)", "info");
 			}
-
-			if (sub === "status") {
-				const prDetails = state.pr
-					? `#${state.pr.number} (${state.pr.state})`
-					: state.isGitRepo
-						? `No PR (${state.branch || "HEAD"})`
-						: "Not a git repo";
-				ctx.ui.notify(
-					`Masthead State:\n• Title: ${state.title}\n• Started: ${state.started}\n• PR: ${prDetails}\n• Visible: ${state.enabled ? "Yes" : "No"}`,
-					"info",
-				);
-				return;
-			}
-
-			// Default action or "refresh"
-			triggerPrFetch(ctx.cwd || process.cwd(), true);
-			updateSessionMetadata(ctx);
 			activeTui?.requestRender();
-			ctx.ui.notify("Masthead refreshed", "info");
-		},
+			return;
+		}
+
+		if (sub === "status") {
+			const prDetails = state.pr
+				? `#${state.pr.number} (${state.pr.state})`
+				: state.isGitRepo
+					? `No PR (${state.branch || "HEAD"})`
+					: "Not a git repo";
+			ctx.ui.notify(
+				`Pi Header State:\n• Title: ${state.title}\n• Started: ${state.started}\n• PR: ${prDetails}\n• Visible: ${state.enabled ? "Yes" : "No"}`,
+				"info",
+			);
+			return;
+		}
+
+		// Default action or "refresh"
+		triggerPrFetch(ctx.cwd || process.cwd(), true);
+		updateSessionMetadata(ctx);
+		activeTui?.requestRender();
+		ctx.ui.notify("Pi header refreshed", "info");
+	};
+
+	pi.registerCommand("header", {
+		description: "Control topmost Pi header (refresh | toggle | status)",
+		handler: handleHeaderCommand,
+	});
+
+	pi.registerCommand("masthead", {
+		description: "Alias for /header",
+		handler: handleHeaderCommand,
 	});
 }
