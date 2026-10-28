@@ -5,5 +5,26 @@
   "maxActiveProcesses": 4,
   "maxGlobalActive": 16,
   "maxQueuedTasks": 32,
-  "graceTurns": 2
+  "graceTurns": 2,
+  "maxRetries": 1,
+  "taskDefaults": {
+    "general": {
+      "fallbackModels": [
+        "antigravity/gemini-3.8-flash:medium"
+      ],
+      "maxRetries": 1
+    },
+    "explore": {
+      "fallbackModels": [
+        "antigravity/gemini-3.8-flash:medium"
+      ],
+      "maxRetries": 1
+    },
+    "review": {
+      "fallbackModels": [
+        "antigravity/gemini-3.8-flash:medium"
+      ],
+      "maxRetries": 1
+    }
+  }
 }

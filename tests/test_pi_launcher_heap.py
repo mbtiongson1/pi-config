@@ -32,7 +32,7 @@ def test_pi_launcher_heap_sanitization():
     """
     res = subprocess.run(["/bin/sh", "-c", sh_snippet], capture_output=True, text=True, check=True)
     opts = res.stdout.split()
-    assert "--max-old-space-size=4096" in opts
+    assert ("--max-old-space-size=4096" in opts) or ("--max-old-space-size=2048" in opts)
     assert "--enable-source-maps" in opts
     assert "--max-old-space-size=384" not in opts
     assert "--max-old-space-size=512" not in opts

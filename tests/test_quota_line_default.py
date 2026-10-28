@@ -52,12 +52,19 @@ class QuotaLineDefaultTests(unittest.TestCase):
             settings_file = agent_dir / "settings.json"
 
             # Case 1: Fresh settings without quota
-            settings_file.write_text(json.dumps({"theme": "dark"}))
+            settings_file.write_text(json.dumps({"theme": "dark", "packages": []}))
             env = {**os.environ, "PI_CODING_AGENT_DIR": str(agent_dir)}
             res = subprocess.run(["bash", str(ENSURE_SCRIPT)], env=env, capture_output=True, text=True)
             self.assertEqual(res.returncode, 0, res.stderr)
             data = json.loads(settings_file.read_text())
             self.assertEqual(data.get("quota", {}).get("surface"), "line")
+            self.assertIn("npm:pi-high-availability", data.get("packages", []))
+
+            # Verify ha.json initialization
+            ha_file = agent_dir / "ha.json"
+            self.assertTrue(ha_file.exists())
+            ha_data = json.loads(ha_file.read_text())
+            self.assertEqual(ha_data.get("errorHandling", {}).get("quotaErrorAction"), "retry")
 
             # Case 2: Settings previously set to box is corrected to line
             data["quota"]["surface"] = "box"

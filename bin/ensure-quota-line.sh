@@ -99,4 +99,79 @@ for panel in "${panels[@]:-}"; do
   ' "$panel"
 done
 
+# 4. Ensure companion quota auto-continue / HA configuration (retry after renewal)
+ha_config="$agent_dir/ha.json"
+if [[ ! -f "$ha_config" ]]; then
+    node -e '
+      const fs = require("fs");
+      const path = process.argv[1];
+      const template = {
+        defaultGroup: "default",
+        groups: {
+          default: {
+            name: "Default Orchestrator",
+            entries: []
+          }
+        },
+        defaultCooldownMs: 300000,
+        errorHandling: {
+          capacityErrorAction: "retry",
+          quotaErrorAction: "retry",
+          networkErrorAction: "retry",
+          retryTimeoutMs: 300000
+        }
+      };
+      fs.writeFileSync(path, JSON.stringify(template, null, 2) + "\n", "utf-8");
+      console.log("Initialized quota renewal retry config in: " + path);
+    ' "$ha_config"
+else
+    node -e '
+      const fs = require("fs");
+      const path = process.argv[1];
+      try {
+        const data = JSON.parse(fs.readFileSync(path, "utf-8"));
+        data.errorHandling = data.errorHandling || {};
+        let changed = false;
+        if (data.errorHandling.quotaErrorAction !== "retry") {
+          data.errorHandling.quotaErrorAction = "retry";
+          changed = true;
+        }
+        if (data.errorHandling.capacityErrorAction !== "retry") {
+          data.errorHandling.capacityErrorAction = "retry";
+          changed = true;
+        }
+        if (data.errorHandling.networkErrorAction !== "retry") {
+          data.errorHandling.networkErrorAction = "retry";
+          changed = true;
+        }
+        if (!data.errorHandling.retryTimeoutMs) {
+          data.errorHandling.retryTimeoutMs = 300000;
+          changed = true;
+        }
+        if (changed) {
+          fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf-8");
+          console.log("Updated quota renewal errorHandling in: " + path);
+        }
+      } catch (e) {}
+    ' "$ha_config"
+fi
+
+# Ensure npm:pi-high-availability is bundled in settings.json packages
+if [[ -f "$settings_file" ]]; then
+    node -e '
+      const fs = require("fs");
+      const path = process.argv[1];
+      try {
+        const data = JSON.parse(fs.readFileSync(path, "utf-8"));
+        if (Array.isArray(data.packages)) {
+          if (!data.packages.includes("npm:pi-high-availability")) {
+            data.packages.push("npm:pi-high-availability");
+            fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf-8");
+            console.log("Bundled npm:pi-high-availability in packages: " + path);
+          }
+        }
+      } catch (e) {}
+    ' "$settings_file"
+fi
+
 echo "pi-quota line default verified."

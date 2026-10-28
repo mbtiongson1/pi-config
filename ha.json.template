@@ -1,0 +1,16 @@
+{
+  "defaultGroup": "default",
+  "groups": {
+    "default": {
+      "name": "Default Orchestrator",
+      "entries": []
+    }
+  },
+  "defaultCooldownMs": 300000,
+  "errorHandling": {
+    "capacityErrorAction": "retry",
+    "quotaErrorAction": "retry",
+    "networkErrorAction": "retry",
+    "retryTimeoutMs": 300000
+  }
+}

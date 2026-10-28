@@ -17,6 +17,15 @@
     ]
   },
   {
+    "package": "npm:pi-high-availability",
+    "name": "Pi High Availability",
+    "description": "Automatic quota renewal retry and high-availability extension (default configured to retry after quota renewal rather than switching orchestrator models).",
+    "postInstallInstructions": [
+      "Configured via ~/.pi/agent/ha.json with quotaErrorAction: retry to resume turns once quota resets.",
+      "Bundled as a companion quota dependency with Pi Quota."
+    ]
+  },
+  {
     "package": "npm:@amaster.ai/pi-image-gen",
     "description": "Image generation extension (image_generate tool) for raster asset generation and image-to-image edits."
   },

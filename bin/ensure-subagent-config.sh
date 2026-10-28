@@ -23,7 +23,22 @@ const desired = {
   maxActiveProcesses: 4,
   maxGlobalActive: 16,
   maxQueuedTasks: 32,
-  graceTurns: 2
+  graceTurns: 2,
+  maxRetries: 1,
+  taskDefaults: {
+    general: {
+      fallbackModels: ["antigravity/gemini-3.8-flash:medium"],
+      maxRetries: 1
+    },
+    explore: {
+      fallbackModels: ["antigravity/gemini-3.8-flash:medium"],
+      maxRetries: 1
+    },
+    review: {
+      fallbackModels: ["antigravity/gemini-3.8-flash:medium"],
+      maxRetries: 1
+    }
+  }
 };
 let current = {};
 if (fs.existsSync(file)) {
@@ -35,7 +50,12 @@ if (fs.existsSync(file)) {
 }
 let changed = false;
 for (const [k, v] of Object.entries(desired)) {
-  if (current[k] !== v) {
+  if (k === "taskDefaults") {
+    if (!current.taskDefaults || JSON.stringify(current.taskDefaults) !== JSON.stringify(v)) {
+      current.taskDefaults = v;
+      changed = true;
+    }
+  } else if (current[k] !== v) {
     current[k] = v;
     changed = true;
   }
