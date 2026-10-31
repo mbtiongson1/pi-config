@@ -110,6 +110,10 @@ if [[ -f "$repo_root/extensions/statusline.ts" && "$repo_root" != "$agent_dir" ]
   cp "$repo_root/extensions/statusline.ts" "$agent_dir/extensions/statusline.ts"
   echo "✓ Deployed extensions/statusline.ts"
 fi
+if [[ -f "$repo_root/extensions/command-safety-guard.ts" && "$repo_root" != "$agent_dir" ]]; then
+  cp "$repo_root/extensions/command-safety-guard.ts" "$agent_dir/extensions/command-safety-guard.ts"
+  echo "✓ Deployed extensions/command-safety-guard.ts"
+fi
 # 4. Verify upstream package version & compatibility
 subagent_pkg="$agent_dir/npm/node_modules/@parke.dev/pi-subagent/package.json"
 if [[ -f "$subagent_pkg" ]]; then

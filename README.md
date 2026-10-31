@@ -77,6 +77,7 @@ by diffing agents, extensions, prompts, and bin.
 | `agents/` | Custom subagents (advisor, planner, reviewer, scout, worker) |
 | `agents/*bunny*.md` | Bunny family (MiniMax M3.1 Flash) — scouts and workers with pinned thinking levels |
 | `extensions/` | Custom pi extensions (including `/statusline` bloat manager and last-message/cache status) |
+| `extensions/command-safety-guard.ts` | Global command execution safety guard enforcing timeout tiers (`30s` searches, `120s` bash, `180s` git, `600s` tests/Python, `1800s` authorized deploys) and blocking runaway searches |
 | `extensions/masthead.ts` | Topmost Pi header showing live session title, start timestamp, and current GitHub PR |
 | `extensions/bunny-router.ts` | Registers the stable `bunny/minimax-m3.1-flash` virtual model and resolves its physical route per request |
 | `extensions/bunny-route.mjs` | Pure, testable Bunny routing core (schedule, credit gates, failure diagnostics) |
@@ -197,6 +198,17 @@ Topmost header replacing default startup banner with live session and repository
   - `/header` / `/header refresh` — Refresh PR information and re-render header (or `/masthead`)
   - `/header toggle` — Toggle header visibility (switch between Pi header and default banner)
   - `/header status` — View active session title, start time, and PR metadata
+
+### Command Execution Safety Guard (`/guard`)
+Harness-level timeout and search safety guard (`extensions/command-safety-guard.ts`) using Pi's native `tool_call` and `tool_result` hooks:
+- **Timeout Tiers** (enforced regardless of model-requested timeout):
+  - Searches (`rg`, `grep`, `find`, `fd`): **30s**
+  - Ordinary Bash: **120s**
+  - Git operations (`git`, `gh`): **180s**
+  - Tests, builds, Python scripts: **600s (10m)**
+  - Authorized production deployments: **1800s (30m)**
+- **Safety Checks**: Blocks unbounded wide searches across `/` or `$HOME`, blocks repeated identical timed-out commands within the session, and requires explicit authorization for production deployments (`/guard authorize-deploy` or explicit user prompt).
+- **Commands**: `/guard [status | on | off | authorize-deploy | revoke-deploy | reset]`
 
 ---
 
