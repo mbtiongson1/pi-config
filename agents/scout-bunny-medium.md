@@ -1,6 +1,6 @@
 ---
 name: scout-bunny-medium
-description: Bunny scout (MiniMax M3.1 Flash) at medium effort — cross-file research and root-cause hypotheses
+description: Traces cross-file behavior and investigates root causes.
 role: scout
 tools: read, grep, find, ls, bash
 model: bunny/minimax-m3.1-flash:medium

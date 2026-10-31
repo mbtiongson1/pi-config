@@ -1,7 +1,7 @@
 ---
 model: anthropic/claude-opus-5-5:medium
 name: worker-opus
-description: Worker agent powered by Claude Opus Medium
+description: Implements scoped coding tasks and verifies changes.
 role: worker
 ---
 

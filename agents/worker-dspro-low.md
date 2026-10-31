@@ -1,6 +1,6 @@
 ---
 name: worker-dspro-low
-description: Low-effort worker agent powered by DeepSeek V4 Pro
+description: Implements small, bounded changes and tests.
 role: worker
 model: deepseek/deepseek-v4-pro:low
 ---

@@ -1,7 +1,7 @@
 ---
 model: openai/gpt-6-luna:medium
 name: worker-luna
-description: Worker agent powered by GPT 6 Luna Low
+description: Implements scoped coding tasks and verifies changes.
 role: worker
 ---
 

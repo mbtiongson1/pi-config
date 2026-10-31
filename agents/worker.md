@@ -1,6 +1,6 @@
 ---
 name: worker
-description: General-purpose subagent with full capabilities, isolated context
+description: Implements scoped coding tasks and verifies changes.
 model: antigravity/gemini-3.8-flash:medium
 ---
 

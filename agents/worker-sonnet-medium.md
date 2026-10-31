@@ -1,7 +1,7 @@
 ---
 model: anthropic/claude-sonnet-5-5:medium
 name: worker-sonnet-medium
-description: Worker agent powered by Claude Sonnet Medium
+description: Implements scoped coding tasks and verifies changes.
 role: worker
 ---
 

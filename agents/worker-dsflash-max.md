@@ -1,6 +1,6 @@
 ---
 name: worker-dsflash-max
-description: Max-effort worker agent powered by DeepSeek V4.1 Flash
+description: Implements difficult changes and verifies complex integrations.
 role: worker
 model: deepseek/deepseek-flash:max
 ---

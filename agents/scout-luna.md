@@ -1,7 +1,7 @@
 ---
 model: openai/gpt-6-luna:minimal
 name: scout-luna
-description: Fast codebase recon using GPT 6 Luna Minimal
+description: Gathers codebase evidence for delegated tasks.
 role: scout
 tools: read, grep, find, ls, bash
 ---

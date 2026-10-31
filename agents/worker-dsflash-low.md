@@ -1,6 +1,6 @@
 ---
 name: worker-dsflash-low
-description: Low-effort worker agent powered by DeepSeek V4.1 Flash
+description: Implements small, bounded changes and tests.
 role: worker
 model: deepseek/deepseek-flash:low
 ---

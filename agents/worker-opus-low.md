@@ -1,7 +1,7 @@
 ---
 model: anthropic/claude-opus-5-5:low
 name: worker-opus-low
-description: Worker agent powered by Claude Opus Low
+description: Implements small, bounded changes and tests.
 role: worker
 ---
 

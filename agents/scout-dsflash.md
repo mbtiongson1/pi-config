@@ -1,6 +1,6 @@
 ---
 name: scout-dsflash
-description: Fast codebase reconnaissance powered by DeepSeek V4.1 Flash
+description: Gathers codebase evidence for delegated tasks.
 model: deepseek/deepseek-flash:low
 role: scout
 tools: read, grep, find, ls, bash

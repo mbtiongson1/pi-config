@@ -1,7 +1,7 @@
 ---
 model: anthropic/claude-sonnet-5-5:high
 name: worker-sonnet-high
-description: Worker agent powered by Claude Sonnet High
+description: Handles complex implementation and debugging.
 role: worker
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: worker-minimax
-description: Worker agent powered by MiniMax M3.1 Flash Medium
+description: Implements scoped coding tasks and verifies changes.
 role: worker
 model: openrouter/minimax/minimax-m3.1-flash:free:medium
 ---

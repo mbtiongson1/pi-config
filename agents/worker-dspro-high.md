@@ -1,6 +1,6 @@
 ---
 name: worker-dspro-high
-description: High-effort worker agent powered by DeepSeek V4 Pro
+description: Handles complex implementation and debugging.
 role: worker
 model: deepseek/deepseek-v4-pro:high
 ---

@@ -1,6 +1,6 @@
 ---
 name: worker-sol-xhigh
-description: Worker agent powered by GPT 6.1 Sol XHigh
+description: Implements difficult changes and verifies complex integrations.
 role: worker
 model: openai/gpt-6.1-sol:xhigh
 ---

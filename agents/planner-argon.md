@@ -1,7 +1,7 @@
 ---
 model: antigravity/gemini-4-argon:max
 name: planner-argon
-description: Planning specialist powered by Gemini 4 Argon Max
+description: Produces actionable implementation plans from supplied context.
 role: planner
 tools: read, grep, find, ls, write
 ---

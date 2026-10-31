@@ -1,7 +1,7 @@
 ---
 model: antigravity/gemini-3.8-flash:high
 name: reviewer
-description: Code review specialist for quality and security analysis powered by GPT 5.6 Sol Low
+description: Reviews code independently for defects and security risks.
 role: reviewer
 tools: read, grep, find, ls, bash
 ---

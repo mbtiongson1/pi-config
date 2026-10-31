@@ -1,6 +1,6 @@
 ---
 name: worker-astra-max
-description: Worker agent powered by GPT 6 Astra Max
+description: Implements difficult changes and verifies complex integrations.
 role: worker
 model: openai/gpt-6-astra:max
 ---

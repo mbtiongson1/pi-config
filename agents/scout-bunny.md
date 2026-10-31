@@ -1,6 +1,6 @@
 ---
 name: scout-bunny
-description: Bunny scout (MiniMax M3.1 Flash) at low effort — convenience alias for scout-bunny-low
+description: Gathers codebase evidence for delegated tasks.
 role: scout
 tools: read, grep, find, ls, bash
 model: bunny/minimax-m3.1-flash:low

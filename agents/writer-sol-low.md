@@ -1,7 +1,7 @@
 ---
 model: openai/gpt-6.1-sol:low
 name: writer-sol-low
-description: Marketing copywriter and writer powered by GPT 6.1 Sol Low
+description: Writes marketing copy and campaign content.
 role: writer
 ---
 

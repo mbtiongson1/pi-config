@@ -1,6 +1,6 @@
 ---
 name: worker-dsflash
-description: Medium-effort worker agent powered by DeepSeek V4.1 Flash
+description: Implements scoped coding tasks and verifies changes.
 role: worker
 model: deepseek/deepseek-flash:medium
 ---

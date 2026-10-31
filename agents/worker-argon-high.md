@@ -1,7 +1,7 @@
 ---
 model: antigravity/gemini-4-argon:high
 name: worker-argon-high
-description: Worker agent powered by Gemini 4 Argon High
+description: Handles complex implementation and debugging.
 role: worker
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: worker-bunny-xhigh
-description: Bunny worker (MiniMax M3.1 Flash) at xhigh effort — deep multi-step implementation and verification
+description: Implements difficult changes and verifies complex integrations.
 role: worker
 model: bunny/minimax-m3.1-flash:xhigh
 thinking: xhigh

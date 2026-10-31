@@ -1,6 +1,6 @@
 ---
 name: worker-bunny-medium
-description: Bunny worker (MiniMax M3.1 Flash) at medium effort — bounded implementation, refactoring, unit tests
+description: Implements scoped coding tasks and verifies changes.
 role: worker
 model: bunny/minimax-m3.1-flash:medium
 thinking: medium

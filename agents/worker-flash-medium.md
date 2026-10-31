@@ -1,6 +1,6 @@
 ---
 name: worker-flash-medium
-description: General-purpose 3.8 flash subagent at medium effort, isolated context
+description: Implements scoped coding tasks and verifies changes.
 model: antigravity/gemini-3.8-flash:medium
 ---
 

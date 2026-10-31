@@ -1,7 +1,7 @@
 ---
 model: antigravity/gemini-4-argon:medium
 name: worker-argon-medium
-description: Worker agent powered by Gemini 4 Argon Medium
+description: Implements scoped coding tasks and verifies changes.
 role: worker
 ---
 

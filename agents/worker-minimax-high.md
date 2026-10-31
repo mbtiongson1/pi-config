@@ -1,6 +1,6 @@
 ---
 name: worker-minimax-high
-description: Worker agent powered by MiniMax M3.1 Flash High
+description: Handles complex implementation and debugging.
 role: worker
 model: openrouter/minimax/minimax-m3.1-flash:free:high
 ---

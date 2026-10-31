@@ -1,6 +1,6 @@
 ---
 name: worker-astra
-description: Worker agent powered by GPT 6 Astra Medium
+description: Implements scoped coding tasks and verifies changes.
 role: worker
 model: openai/gpt-6-astra:medium
 ---

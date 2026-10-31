@@ -1,6 +1,6 @@
 ---
 name: worker-astra-high
-description: Worker agent powered by GPT 6 Astra High
+description: Handles complex implementation and debugging.
 role: worker
 model: openai/gpt-6-astra:high
 ---

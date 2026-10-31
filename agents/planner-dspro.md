@@ -1,6 +1,6 @@
 ---
 name: planner-dspro
-description: Planning specialist powered by DeepSeek V4 Pro Max
+description: Produces actionable implementation plans from supplied context.
 model: deepseek/deepseek-v4-pro:max
 role: planner
 tools: read, grep, find, ls, write

@@ -1,7 +1,8 @@
 ---
 name: free-model-bench
-description: Benchmark runner for free models
+description: Runs a fixed benchmark task for selected models.
 model: placeholder
+thinking: medium
 tools: bash
 ---
 

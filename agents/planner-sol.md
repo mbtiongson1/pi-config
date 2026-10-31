@@ -1,7 +1,7 @@
 ---
 model: openai/gpt-6.1-sol:max
 name: planner-sol
-description: Planning specialist powered by GPT 6.1 Sol Max
+description: Produces actionable implementation plans from supplied context.
 role: planner
 tools: read, grep, find, ls, write
 ---

@@ -1,6 +1,6 @@
 ---
 name: scout-fast
-description: Fast codebase recon using Gemini 3.5 Flash Lite
+description: Gathers codebase evidence for delegated tasks.
 role: scout
 tools: read, grep, find, ls, bash
 model: antigravity/gemini-3.5-flash-lite:minimal

@@ -1,6 +1,6 @@
 ---
 name: worker-luna-max
-description: Worker agent powered by GPT 6 Luna Max
+description: Implements difficult changes and verifies complex integrations.
 model: openai/gpt-6-luna:max
 ---
 

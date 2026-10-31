@@ -1,6 +1,6 @@
 ---
 name: worker-flash-high
-description: High-effort 3.8 flash subagent, isolated context
+description: Handles complex implementation and debugging.
 model: antigravity/gemini-3.8-flash:high
 ---
 

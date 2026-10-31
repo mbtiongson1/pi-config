@@ -1,6 +1,6 @@
 ---
 name: milim-mockup-crafter
-description: Lightweight, worker-free creative agent that designs original Milim concept-art image prompts for mockups. Use to fan out varied diptych prompt drafts in parallel.
+description: Creates original Milim concept-art prompts for mockups.
 model: antigravity/gemini-3.8-flash:medium
 ---
 

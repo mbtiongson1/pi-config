@@ -1,6 +1,6 @@
 ---
 name: worker-dspro
-description: Medium-effort worker agent powered by DeepSeek V4 Pro
+description: Implements scoped coding tasks and verifies changes.
 role: worker
 model: deepseek/deepseek-v4-pro:medium
 ---

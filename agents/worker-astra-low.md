@@ -1,6 +1,6 @@
 ---
 name: worker-astra-low
-description: Worker agent powered by GPT 6 Astra Low
+description: Implements small, bounded changes and tests.
 role: worker
 model: openai/gpt-6-astra:low
 ---

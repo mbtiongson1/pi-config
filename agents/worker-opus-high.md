@@ -1,7 +1,7 @@
 ---
 model: anthropic/claude-opus-5-5:high
 name: worker-opus-high
-description: Worker agent powered by Claude Opus High
+description: Handles complex implementation and debugging.
 role: worker
 ---
 

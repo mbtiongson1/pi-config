@@ -1,6 +1,6 @@
 ---
 name: planner-agy
-description: Planning specialist powered by Google Antigravity
+description: Produces actionable implementation plans from supplied context.
 role: planner
 tools: read, grep, find, ls, write
 model: antigravity/gemini-3.1-pro:high

@@ -1,6 +1,6 @@
 ---
 name: scout-bunny-low
-description: Bunny scout (MiniMax M3.1 Flash) at low effort — fast searches and evidence gathering
+description: Gathers codebase evidence for delegated tasks.
 role: scout
 tools: read, grep, find, ls, bash
 model: bunny/minimax-m3.1-flash:low

@@ -1,6 +1,6 @@
 ---
 name: worker-bunny-max
-description: Bunny worker (MiniMax M3.1 Flash) at max effort — difficult engineering tasks, complex refactoring, multi-step verification
+description: Implements difficult changes and verifies complex integrations.
 role: worker
 model: bunny/minimax-m3.1-flash:max
 thinking: max

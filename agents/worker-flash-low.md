@@ -1,6 +1,6 @@
 ---
 name: worker-flash-low
-description: Fast 3.8 flash subagent at low effort, isolated context
+description: Implements small, bounded changes and tests.
 model: antigravity/gemini-3.8-flash:low
 ---
 

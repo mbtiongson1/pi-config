@@ -1,7 +1,7 @@
 ---
 model: antigravity/gemini-4-argon:low
 name: worker-argon-low
-description: Worker agent powered by Gemini 4 Argon Low
+description: Implements small, bounded changes and tests.
 role: worker
 ---
 

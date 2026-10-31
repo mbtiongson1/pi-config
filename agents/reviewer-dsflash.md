@@ -1,6 +1,6 @@
 ---
 name: reviewer-dsflash
-description: High-effort code reviewer powered by DeepSeek V4.1 Flash
+description: Reviews code independently for defects and security risks.
 model: deepseek/deepseek-flash:high
 role: reviewer
 tools: read, grep, find, ls, bash

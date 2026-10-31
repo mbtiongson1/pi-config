@@ -1,6 +1,6 @@
 ---
 name: worker-bunny
-description: Bunny worker (MiniMax M3.1 Flash) at high effort — convenience alias for worker-bunny-high
+description: Handles complex implementation and debugging.
 role: worker
 model: bunny/minimax-m3.1-flash:high
 thinking: high

@@ -1,6 +1,6 @@
 ---
 name: worker-dsflash-high
-description: High-effort worker agent powered by DeepSeek V4.1 Flash
+description: Handles complex implementation and debugging.
 role: worker
 model: deepseek/deepseek-flash:high
 ---

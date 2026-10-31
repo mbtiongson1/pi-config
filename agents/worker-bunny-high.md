@@ -1,6 +1,6 @@
 ---
 name: worker-bunny-high
-description: Bunny worker (MiniMax M3.1 Flash) at high effort — multi-file implementation, debugging, integration validation
+description: Handles complex implementation and debugging.
 role: worker
 model: bunny/minimax-m3.1-flash:high
 thinking: high

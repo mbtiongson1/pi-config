@@ -1,6 +1,6 @@
 ---
 name: worker-dspro-max
-description: Max-effort worker agent powered by DeepSeek V4 Pro
+description: Implements difficult changes and verifies complex integrations.
 role: worker
 model: deepseek/deepseek-v4-pro:max
 ---

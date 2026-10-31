@@ -1,7 +1,8 @@
 ---
-model: anthropic/claude-opus-5-5:high
+model: antigravity/claude-opus-5-5
+thinking: xhigh
 name: planner-opus
-description: Creates implementation plans from context and requirements
+description: Produces actionable implementation plans from supplied context.
 role: planner
 tools: read, grep, find, ls, write
 ---

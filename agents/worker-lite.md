@@ -1,6 +1,6 @@
 ---
 name: worker-lite
-description: Lightweight subagent powered by Gemini 3.5 Flash Lite, isolated context
+description: Implements small, bounded changes and tests.
 role: worker
 model: antigravity/gemini-3.5-flash-lite:medium
 ---

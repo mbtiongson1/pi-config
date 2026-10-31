@@ -1,6 +1,6 @@
 ---
 name: worker-bunny-low
-description: Bunny worker (MiniMax M3.1 Flash) at low effort — small mechanical changes, isolated tests, documentation fixes
+description: Implements small, bounded changes and tests.
 role: worker
 model: bunny/minimax-m3.1-flash:low
 thinking: low

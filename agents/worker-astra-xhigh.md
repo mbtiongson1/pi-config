@@ -1,6 +1,6 @@
 ---
 name: worker-astra-xhigh
-description: Worker agent powered by GPT 6 Astra XHigh
+description: Implements difficult changes and verifies complex integrations.
 role: worker
 model: openai/gpt-6-astra:xhigh
 ---
