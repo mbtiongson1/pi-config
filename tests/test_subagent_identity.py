@@ -38,7 +38,8 @@ class TestSubagentIdentity(unittest.TestCase):
     def test_parallel_agent_identity_distinction(self):
         tasks = [
             {"agent": "worker-flash-high", "model": "antigravity/gemini-3.8-flash", "thinking": "high", "task": "Task 1"},
-            {"agent": "worker-sol", "model": "openai/gpt-6.1-sol", "thinking": "medium", "task": "Task 2"}
+            {"agent": "worker-sol", "model": "openai/gpt-6.1-sol", "thinking": "medium", "task": "Task 2"},
+            {"agent": "reviewer", "model": "openai-codex/gpt-6.1-terra", "thinking": "high", "task": "Task 3"}
         ]
         
         # Verify each parallel worker is distinct and exposes required identity fields
@@ -49,6 +50,10 @@ class TestSubagentIdentity(unittest.TestCase):
         self.assertEqual(tasks[1]["agent"], "worker-sol")
         self.assertEqual(tasks[1]["model"], "openai/gpt-6.1-sol")
         self.assertEqual(tasks[1]["thinking"], "medium")
+
+        self.assertEqual(tasks[2]["agent"], "reviewer")
+        self.assertEqual(tasks[2]["model"], "openai-codex/gpt-6.1-terra")
+        self.assertEqual(tasks[2]["thinking"], "high")
 
 if __name__ == "__main__":
     unittest.main()

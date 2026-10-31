@@ -10,9 +10,6 @@ class TestSonnetOpusModelConfig(unittest.TestCase):
         opus_agents = [
             ("planner-opus.md", "anthropic/claude-opus-5-5:high"),
             ("worker-opus.md", "anthropic/claude-opus-5-5:medium"),
-            ("worker-opus-low.md", "anthropic/claude-opus-5-5:low"),
-            ("worker-opus-medium.md", "anthropic/claude-opus-5-5:medium"),
-            ("worker-opus-high.md", "anthropic/claude-opus-5-5:high"),
         ]
         for filename, expected_model in opus_agents:
             with self.subTest(agent=filename):
@@ -25,9 +22,6 @@ class TestSonnetOpusModelConfig(unittest.TestCase):
         agents_dir = REPO_ROOT / "agents"
         sonnet_agents = [
             ("worker-sonnet.md", "antigravity/claude-sonnet-5-5"),
-            ("worker-sonnet-low.md", "anthropic/claude-sonnet-5-5:low"),
-            ("worker-sonnet-medium.md", "anthropic/claude-sonnet-5-5:medium"),
-            ("worker-sonnet-high.md", "antigravity/claude-sonnet-5-5"),
         ]
         for filename, expected_model in sonnet_agents:
             with self.subTest(agent=filename):

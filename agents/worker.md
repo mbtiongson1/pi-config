@@ -2,6 +2,7 @@
 name: worker
 description: General-purpose subagent with full capabilities, isolated context
 model: antigravity/gemini-3.8-flash:medium
+thinking: medium
 spawns: false
 fallback_models:
   - antigravity/gemini-3.8-flash:medium

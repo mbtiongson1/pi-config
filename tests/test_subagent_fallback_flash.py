@@ -27,17 +27,20 @@ class SubagentFallbackConfigTests(unittest.TestCase):
         content = worker_file.read_text()
         self.assertIn("spawns: false", content)
         self.assertIn("model: antigravity/gemini-3.8-flash:medium", content)
+        self.assertIn("thinking: medium", content)
 
     def test_flash_workers_spawns_disabled(self):
         flash_workers = [
-            "worker-flash-low.md",
-            "worker-flash-medium.md",
-            "worker-flash-high.md",
+            ("worker-flash-low.md", "low"),
+            ("worker-flash-medium.md", "medium"),
+            ("worker-flash-high.md", "high"),
         ]
-        for name in flash_workers:
+        for name, expected_thinking in flash_workers:
             agent_file = AGENTS_DIR / name
             self.assertTrue(agent_file.exists())
-            self.assertIn("spawns: false", agent_file.read_text())
+            text = agent_file.read_text()
+            self.assertIn("spawns: false", text)
+            self.assertIn(f"thinking: {expected_thinking}", text)
 
     def test_ensure_subagent_script_updates_config(self):
         with tempfile.TemporaryDirectory() as td:

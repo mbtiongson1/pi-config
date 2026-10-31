@@ -2,6 +2,7 @@
 name: worker-flash-medium
 description: General-purpose 3.8 flash subagent at medium effort, isolated context
 model: antigravity/gemini-3.8-flash:medium
+thinking: medium
 spawns: false
 ---
 

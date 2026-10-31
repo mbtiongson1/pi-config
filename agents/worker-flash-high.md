@@ -2,6 +2,7 @@
 name: worker-flash-high
 description: High-effort 3.8 flash subagent, isolated context
 model: antigravity/gemini-3.8-flash:high
+thinking: high
 spawns: false
 ---
 

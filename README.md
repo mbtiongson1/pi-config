@@ -433,4 +433,27 @@ Understanding the architectural distinction prevents false assumptions about saf
 
 ---
 
+### Agent routing & Roster Architecture
+
+Use Flash or Luna for economical scouting, routine review, and bounded work. Use
+Terra for intermediate implementation, independent review, and substantial
+planning; `reviewer` defaults to Terra with read-only tools, and `planner-terra`
+is a lower-cost planning option than Sol. Use Sol for difficult architecture and
+integration, and reserve Astra and Opus for explicitly authorized premium work.
+Choose the least expensive route likely to produce a verified result, including
+retries; never escalate tiers autonomously or dispatch unauthorized premium agents.
+Pi subagent calls must not set turn caps.
+
+The canonical roster is simplified into foundational roles (`worker`, `scout`,
+`planner`, `reviewer`, `advisor`) plus model family personas (`worker-terra`,
+`worker-sol`, `worker-astra`, etc.). Use native per-dispatch parameters (`model`,
+`thinking`, `profile`, `description`, `cwd`, `tasks[]`) rather than proliferating
+effort-suffixed agent files. All planners request MAX effort, falling back to HIGH
+only if unsupported.
+
+The Terra agents target `openai-codex/gpt-6.1-terra` via the existing Codex
+OAuth route (with `openai/gpt-5.6-terra` as verified alternative). Reviewers
+and planners expose read-only tools (`read, grep, find, ls`). Operator selections
+override agent defaults per dispatch.
+
 For provider/model setup, see [pi.dev docs](https://pi.dev).

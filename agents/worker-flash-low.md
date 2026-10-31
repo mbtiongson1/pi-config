@@ -2,6 +2,7 @@
 name: worker-flash-low
 description: Fast 3.8 flash subagent at low effort, isolated context
 model: antigravity/gemini-3.8-flash:low
+thinking: low
 spawns: false
 ---
 
