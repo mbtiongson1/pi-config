@@ -27,7 +27,8 @@ or global retry/default settings are changed by adding these files.
 
 Bodies and roles match their corresponding originals. Tool declarations are
 preserved, except advisors explicitly enforce their existing pure-reasoning
-contract with `tools: none` and `spawns: false`.
+contract with `tools: []` and `spawns: false` (the installed subagent parser treats
+`none` as an unavailable tool name, not an empty list).
 `thinking` is explicit to prevent inheriting the lead's effort. Maximum keeps
 the existing `:max` model suffix and uses Pi's valid `thinking: xhigh` spelling.
 A model that cannot honor a requested effort must be reported, not silently

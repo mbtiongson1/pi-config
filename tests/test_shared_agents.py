@@ -50,7 +50,7 @@ class SharedAgentTests(unittest.TestCase):
                 self.assertEqual(shared["thinking"], effort)
                 self.assertEqual(shared["role"], source["role"])
                 if source["role"] == "advisor":
-                    self.assertEqual(shared["tools"], "none")
+                    self.assertEqual(shared["tools"], "[]")
                     self.assertEqual(shared["spawns"], "false")
                 else:
                     self.assertEqual(shared.get("tools"), source.get("tools"))

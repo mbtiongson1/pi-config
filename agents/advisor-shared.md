@@ -2,7 +2,7 @@
 name: advisor-shared
 description: One-round expert advisor for high-stakes decisions. Requires fully scoped context — no tool use, pure reasoning only. (shared via openai-codex)
 role: advisor
-tools: none
+tools: []
 spawns: false
 model: openai-codex/gpt-6-astra:max
 thinking: xhigh
