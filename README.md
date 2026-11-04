@@ -435,6 +435,13 @@ Understanding the architectural distinction prevents false assumptions about saf
 
 ### Agent routing & Roster Architecture
 
+**Explicit shared routes:** the OpenAI-family roster also has separate
+`*-shared` personas pinned to `openai-codex`, including `worker-luna-shared`,
+`worker-sol-shared`, `worker-terra-shared`, `worker-astra-shared`,
+`reviewer-shared`, `scout-luna-shared`, and `advisor-astra-shared`. Original
+personas remain unchanged. See [the full shared roster and routing/timeout
+contract](docs/shared-agents.md).
+
 Use Flash or Luna for economical scouting, routine review, and bounded work. Use
 Terra for intermediate implementation, independent review, and substantial
 planning; `reviewer` defaults to Terra with read-only tools, and `planner-terra`
