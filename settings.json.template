@@ -29,7 +29,7 @@
     "default": "idle"
   },
   "pi-image-gen": {
-    "defaultModel": "gpt-image-2.5"
+    "defaultModel": "gpt-image-2.6"
   },
   "enabledModels": [
     "antigravity/gemini-3.8-flash",
