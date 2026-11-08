@@ -30,7 +30,8 @@ preserved, except advisors explicitly enforce their existing pure-reasoning
 contract with `tools: []` and `spawns: false` (the installed subagent parser treats
 `none` as an unavailable tool name, not an empty list).
 `thinking` is explicit to prevent inheriting the lead's effort. Maximum keeps
-the existing `:max` model suffix and uses Pi's valid `thinking: xhigh` spelling.
+the existing `:max` model suffix and uses explicit `thinking: max` for advisors
+(`thinking: xhigh` for planners).
 A model that cannot honor a requested effort must be reported, not silently
 replaced. A Sol high assignment still needs an explicit `thinking: high`
 override; its base worker persona intentionally remains medium.

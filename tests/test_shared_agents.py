@@ -5,8 +5,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 AGENTS = ROOT / "agents"
 EXPECTED = {
-    "advisor": "xhigh",
-    "advisor-astra": "xhigh",
+    "advisor": "max",
+    "advisor-astra": "max",
     "planner": "xhigh",
     "planner-sol": "xhigh",
     "planner-terra": "xhigh",

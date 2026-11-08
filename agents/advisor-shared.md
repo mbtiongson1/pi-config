@@ -5,7 +5,7 @@ role: advisor
 tools: []
 spawns: false
 model: openai-codex/gpt-6-astra:max
-thinking: xhigh
+thinking: max
 fallback_models: [openai-codex/gpt-6-astra:max]
 max_retries: 0
 ---
