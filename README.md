@@ -94,6 +94,10 @@ by diffing agents, extensions, prompts, and bin.
 | `settings.json.template` | Base settings — fill in your provider + models |
 | `skills/pi-cost/` | Mandatory v1.10.0 skill, cost calculator, license/notice, and auto-refreshing Gaia/LiteLLM price catalog |
 | `skills/astra-advisor/` | Portable one-round decision advisor skill (`SKILL.md`) and native Codex configuration profile (`codex.config.toml`) |
+| `skills/download/` | Precise media and file downloader skill with cross-device preflights and automated organization |
+| `skills/open/` | Cross-platform native file and media opener skill (`termux-open`, `open`, `xdg-open`, `wslview`) |
+| `prompts/download.md` | `/download` prompt command for precise episodic media, torrents, and direct URLs |
+| `prompts/open.md` | `/open` prompt command for opening files or the latest download in native viewers/players |
 | `bin/install-astra-advisor.sh` | Standalone installer for Astra Advisor across Pi and Codex |
 | `APPEND_SYSTEM.md` | Global engineering-discipline contract (Pi native system-prompt append) |
 | `bin/install-append-system.sh` | Required idempotent installer for the contract on Update and Reinstall; preserves user text |

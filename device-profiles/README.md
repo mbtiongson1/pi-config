@@ -11,7 +11,11 @@ device-profiles/
   README.md
   schema.json                        # JSON Schema for profile.json
   templates/
-    device-profile.example.json       # copy this to start a new device
+    device-profile.example.json       # generic starter template
+    android-termux.example.json       # Android / Termux template with preflights
+    macos-apple-silicon.example.json  # macOS Apple Silicon (M-series) template
+    linux-desktop.example.json        # Linux desktop workstation template
+    windows-wsl.example.json          # Windows 11 (WSL2) template
   macbook-air-m1/
     profile.json                      # policy + verification metadata
     model-catalog.json                # sanitized snapshot of the local catalog
