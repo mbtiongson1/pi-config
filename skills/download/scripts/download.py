@@ -275,12 +275,36 @@ def download_direct_url(url: str, dest_dir: Path, plat: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="Precise downloader with device preflights")
     parser.add_argument("query", nargs="?", help="Series title, query, or direct URL")
-    parser.add_argument("--episode", "-e", default="1", help="Episode number, range (e.g. 1-3), or comma-separated list")
-    parser.add_argument("--resolution", "-r", default="1080p", choices=["480p", "720p", "1080p", "2160p", "any"], help="Target resolution")
+    parser.add_argument("--episode", "-e", default=None, help="Episode number, range (e.g. 1-3), or comma-separated list")
+    parser.add_argument("--resolution", "-r", default=None, choices=["480p", "720p", "1080p", "2160p", "any"], help="Target resolution")
     parser.add_argument("--dry-run", action="store_true", help="Inspect and plan download without running")
     parser.add_argument("--preflight", action="store_true", help="Run device preflight checks and print status")
+    parser.add_argument("--queue", action="store_true", help="Add this download to the queue for later Wi-Fi download")
+    parser.add_argument("--queue-start", action="store_true", help="Start downloading all queued items")
+    parser.add_argument("--queue-list", action="store_true", help="List all items in download queue")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     args = parser.parse_args()
+
+    # Queue quick handlers
+    if args.queue_start:
+        from queue import start_queue_downloads
+        res = start_queue_downloads(dry_run=args.dry_run)
+        if args.json:
+            print(json.dumps(res, indent=2))
+        else:
+            print(res["message"])
+        sys.exit(0 if res.get("success") else 1)
+
+    if args.queue_list:
+        from queue import list_queue
+        res = list_queue()
+        if args.json:
+            print(json.dumps(res, indent=2))
+        else:
+            print(f"Torrent Download Queue ({res['pending_count']} pending):")
+            for it in res.get("items", []):
+                print(f"  [#{it.get('id')}] [{it.get('status').upper()}] {it.get('query')} - Ep {it.get('episode')}")
+        sys.exit(0)
 
     preflight = run_preflight()
     if args.preflight or not args.query:
@@ -299,15 +323,48 @@ def main():
         sys.exit(0 if preflight["ready"] else 1)
 
     plat = preflight["platform"]
-    query = args.query.strip()
-    is_url = query.startswith("http://") or query.startswith("https://") or query.startswith("magnet:")
+    raw_query = args.query.strip()
+    is_url = raw_query.startswith("http://") or raw_query.startswith("https://") or raw_query.startswith("magnet:")
+
+    # If --queue was requested, enqueue and exit
+    if args.queue:
+        from queue import add_to_queue
+        q_text = raw_query
+        if args.episode:
+            q_text += f" --episode {args.episode}"
+        if args.resolution:
+            q_text += f" --resolution {args.resolution}"
+        res = add_to_queue(q_text)
+        if args.json:
+            print(json.dumps(res, indent=2))
+        else:
+            print(res["message"])
+            print(f"Total pending: {res['pending_count']}. Run '/queue start' when on Wi-Fi.")
+        sys.exit(0)
 
     if is_url:
         dest = Path(preflight["primary_destination"])
-        res = download_direct_url(query, dest, plat)
+        res = download_direct_url(raw_query, dest, plat)
     elif preflight["has_kura"]:
-        episodes = parse_episode_range(args.episode)
-        res = download_with_kura(query, episodes, args.resolution, args.dry_run, preflight["kura_python"], plat)
+        # If explicit episode was not passed, use smart queue parser to extract title/ep/resolution
+        if args.episode is None:
+            try:
+                from queue import parse_queue_entry
+                parsed = parse_queue_entry(raw_query)
+                query = parsed["query"]
+                ep_spec = parsed["episode"]
+                resolution = args.resolution or parsed["resolution"]
+            except Exception:
+                query = raw_query
+                ep_spec = "1"
+                resolution = args.resolution or "1080p"
+        else:
+            query = raw_query
+            ep_spec = args.episode
+            resolution = args.resolution or "1080p"
+
+        episodes = parse_episode_range(ep_spec)
+        res = download_with_kura(query, episodes, resolution, args.dry_run, preflight["kura_python"], plat)
     else:
         res = {"success": False, "error": "Kura is not available and input is not a direct URL."}
 

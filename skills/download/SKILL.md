@@ -1,18 +1,52 @@
 ---
 name: download
 description: >-
-  Precise media and file downloader with cross-device preflights. Supports Kura
-  on Android/Termux for episodic anime and BitTorrent, direct URL/torrent downloads via
-  aria2c/curl, wake locks, cryptographic piece verification, and automated storage
-  organization into Downloads.
+  Precise media and file downloader with cross-device preflights and torrent queuing system.
+  Supports Kura on Android/Termux for episodic anime and BitTorrent, direct URL/torrent
+  downloads via aria2c/curl, persistent download queue (/queue <title> [ep] [res], /queue start),
+  wake locks, cryptographic piece verification, and automated storage organization into Downloads.
 ---
 
-# /download — Precise Media and File Downloader
+# /download & /queue — Precise Media Downloader & Torrent Queue
 
-Cross-platform downloader optimized for precise episodic media, torrents, and files
-with environment preflights and automated destination organization.
+Cross-platform downloader and queuing system optimized for precise episodic media, torrents,
+and files with environment preflights, background queuing, and automated destination organization.
 
-## Usage
+## Torrent Queuing System (/queue)
+
+Queue torrents on metered or mobile data without downloading immediately. When connected to Wi-Fi,
+trigger sequential batch downloads:
+
+```bash
+# Natural syntax (add title, episode, resolution)
+/queue Dark item 06 1080p
+/queue "Just Because!" 01-03 1080p
+/queue Bleach 15 720p
+
+# Direct torrent/magnet URL queueing
+/queue "https://example.com/file.torrent"
+
+# Inspect queued items
+/queue list
+/queue status
+
+# Start downloads when on Wi-Fi
+/queue start
+
+# Clear finished/failed items or remove by ID
+/queue clear
+/queue remove 1
+```
+
+Via CLI directly:
+
+```bash
+python3 ~/.pi/agent/skills/download/scripts/queue.py "Dark item 06 1080p"
+python3 ~/.pi/agent/skills/download/scripts/queue.py list
+python3 ~/.pi/agent/skills/download/scripts/queue.py start
+```
+
+## Immediate Download Usage (/download)
 
 ```bash
 # Precise anime/episodic download via Kura (1080p by default)
