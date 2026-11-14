@@ -56,12 +56,12 @@ Subagents are visible directly in the Pi statusline without requiring repeated `
 
 ### Compact Status Format
 ```
-worker-flash-high · Gemini 3.8 Flash · high · running · 2m14s
+worker-hydrogen-high · Gemini 4 Hydrogen · high · running · 2m14s
 ```
 
 When multiple tasks run concurrently:
 ```
-worker-flash-high · Gemini 3.8 Flash · high · running · 2m14s (+1 more)
+worker-hydrogen-high · Gemini 4 Hydrogen · high · running · 2m14s (+1 more)
 ```
 
 ### State Distinctions
@@ -88,9 +88,9 @@ Agent definitions live in `~/.pi/agent/agents/<name>.md`. Frontmatter controls t
 
 ```markdown
 ---
-name: worker-flash-high
-description: High-effort 3.8 flash subagent, isolated context
-model: antigravity/gemini-3.8-flash:high
+name: worker-hydrogen-high
+description: High-effort Gemini 4 Hydrogen subagent, isolated context
+model: antigravity/gemini-4-hydrogen:high
 role: worker
 profile: general
 tools: read, edit, write, bash
@@ -99,7 +99,7 @@ tools: read, edit, write, bash
 
 ### Model & Thinking Level Resolution
 1. **Explicit Call Arguments**: Passing `model` or `thinking` in the `subagent({...})` tool call always takes highest precedence.
-2. **Combined Shorthand**: Frontmatter can specify `model: provider/model-id:thinkingLevel` (e.g., `antigravity/gemini-3.8-flash:high`).
+2. **Combined Shorthand**: Frontmatter can specify `model: provider/model-id:thinkingLevel` (e.g., `antigravity/gemini-4-hydrogen:high`).
 3. **Explicit Frontmatter**: `model:` and `thinking:` fields in the frontmatter.
 4. **Parent Fallback**: If unspecified, inherits the parent session's active model and thinking level.
 

@@ -17,7 +17,7 @@ interface SubagentTaskState {
 }
 
 const KNOWN_MODELS: Record<string, string> = {
-	"gemini-3.8-flash": "Gemini 3.8 Flash",
+	"gemini-4-hydrogen": "Gemini 4 Hydrogen",
 	"gemini-3.5-flash-lite": "Gemini 3.5 Flash Lite",
 	"gemini-3.1-pro": "Gemini 3.1 Pro",
 	"claude-opus-5-5": "Claude Opus 5.5",

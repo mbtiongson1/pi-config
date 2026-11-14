@@ -145,11 +145,11 @@ class TestBunnyAgents(unittest.TestCase):
 
 
 class TestExistingRoutingUnchanged(unittest.TestCase):
-    def test_default_flash_provider_is_untouched(self):
+    def test_default_hydrogen_provider_is_untouched(self):
         settings = json.loads((REPO_ROOT / "settings.json.template").read_text(encoding="utf-8"))
         self.assertEqual(settings["defaultProvider"], "antigravity")
-        self.assertEqual(settings["defaultModel"], "gemini-3.8-flash")
-        self.assertIn("antigravity/gemini-3.8-flash", settings["enabledModels"])
+        self.assertEqual(settings["defaultModel"], "gemini-4-hydrogen")
+        self.assertIn("antigravity/gemini-4-hydrogen", settings["enabledModels"])
 
     def test_premium_agents_are_untouched(self):
         expected = {
@@ -157,7 +157,7 @@ class TestExistingRoutingUnchanged(unittest.TestCase):
             "worker-sol": "openai/gpt-6.1-sol",
             "worker-astra": "openai/gpt-6-astra",
             "scout-luna": "openai/gpt-6-luna",
-            "worker-flash-high": "antigravity/gemini-3.8-flash",
+            "worker-hydrogen-high": "antigravity/gemini-4-hydrogen",
         }
         for name, model in expected.items():
             with self.subTest(agent=name):
@@ -420,7 +420,7 @@ class TestDeviceModelsLifecycle(unittest.TestCase):
     def test_restore_preserves_credentials_and_unrelated_models(self):
         auth = '{"openrouter": {"type": "oauth"}}'
         (self.agent_dir / "auth.json").write_text(auth, encoding="utf-8")
-        models = {"providers": {"antigravity": {"modelOverrides": {"gemini-3.8-flash": {"contextWindow": 272000}}}}}
+        models = {"providers": {"antigravity": {"modelOverrides": {"gemini-4-hydrogen": {"contextWindow": 1048576}}}}}
         (self.agent_dir / "models.json").write_text(json.dumps(models), encoding="utf-8")
         store = {
             "openrouter": {
@@ -443,7 +443,7 @@ class TestDeviceModelsLifecycle(unittest.TestCase):
         self.assertEqual((self.agent_dir / "auth.json").read_text(encoding="utf-8"), auth)
         restored = json.loads((self.agent_dir / "models.json").read_text(encoding="utf-8"))
         self.assertIn("antigravity", restored["providers"])
-        self.assertIn("gemini-3.8-flash", restored["providers"]["antigravity"]["modelOverrides"])
+        self.assertIn("gemini-4-hydrogen", restored["providers"]["antigravity"]["modelOverrides"])
         # The device profile's model is added, not substituted.
         added = [m["id"] for m in restored["providers"]["openrouter"]["models"]]
         self.assertIn("minimax/minimax-m3.1-flash:free", added)

@@ -142,7 +142,7 @@ editing an agent file.
   automatic purchase, no auto top-up, and no silent paid fallback.
 - In-flight jobs finish on the provider that already served them; new
   invocations use the new route.
-- The default Flash provider (`antigravity/gemini-3.8-flash`) and every other
+- The default Hydrogen provider (`antigravity/gemini-4-hydrogen`) and every other
   model family are untouched.
 
 ```bash
@@ -188,7 +188,7 @@ Details: [`device-profiles/README.md`](device-profiles/README.md).
 
 ## Antigravity cache warming
 
-The default Pi template opts `antigravity/gemini-3.8-flash` into the extension's guarded `force` warming policy. Other Antigravity Flash models retain the existing streaming-only policy. The model template supplies a five-minute scheduling hint; it is a local Pi refresh cadence, **not a published or guaranteed Antigravity cache TTL**. The extension may override Pi's default savings decision only inside its estimated per-refresh miss-premium guard, and Pi's own active/idle safety windows still apply. A completed refresh is not itself proof that the provider reported a cache hit.
+The default Pi template opts `antigravity/gemini-4-hydrogen` into the extension's guarded `force` warming policy. Other Antigravity Flash/Hydrogen models retain the existing streaming-only policy. The model template supplies a five-minute scheduling hint; it is a local Pi refresh cadence, **not a published or guaranteed Antigravity cache TTL**. The extension may override Pi's default savings decision only inside its estimated per-refresh miss-premium guard, and Pi's own active/idle safety windows still apply. A completed refresh is not itself proof that the provider reported a cache hit.
 
 ---
 
@@ -275,7 +275,7 @@ Give Pi agents native access to macOS desktop inspection and control using `pi-c
 Fast probabilistic decision layer, semantic MCP tool discovery, and reflex classification:
 
 - **Features**:
-  - **Selectable Classifier Engines** (`extensions/jev-classifier.ts`): Switch seamlessly between actual TypeSafe Jev (`openrouter/~typesafe/jev-latest` / `typesafe`) and lightweight LLM mimics (`antigravity/gemini-3.8-flash` or `openai/gpt-6-luna` with thinking: off).
+  - **Selectable Classifier Engines** (`extensions/jev-classifier.ts`): Switch seamlessly between actual TypeSafe Jev (`openrouter/~typesafe/jev-latest` / `typesafe`) and lightweight LLM mimics (`antigravity/gemini-4-hydrogen` or `openai/gpt-6-luna` with thinking: off).
   - **Pi Tool (`classify`)**: Evaluates discrete questions (choice, bool, score) over arbitrary JSON states.
   - **Subagent (`jev-wannabe`)**: Specialized agent for isolated decision routing and classification.
   - **Telemetry in Statusline**: Real-time token and cost meter (`⚡ Jev [actual|flash|luna]`) with zero extra footprint.
@@ -448,7 +448,7 @@ Understanding the architectural distinction prevents false assumptions about saf
 personas remain unchanged. See [the full shared roster and routing/timeout
 contract](docs/shared-agents.md).
 
-Use Flash or Luna for economical scouting, routine review, and bounded work. Use
+Use Hydrogen or Luna for economical scouting, routine review, and bounded work. Use
 Terra for intermediate implementation, independent review, and substantial
 planning; `reviewer` defaults to Terra with read-only tools, and `planner-terra`
 is a lower-cost planning option than Sol. Use Sol for difficult architecture and

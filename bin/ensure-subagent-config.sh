@@ -27,15 +27,15 @@ const desired = {
   maxRetries: 1,
   taskDefaults: {
     general: {
-      fallbackModels: ["antigravity/gemini-3.8-flash:medium"],
+      fallbackModels: ["antigravity/gemini-4-hydrogen:medium"],
       maxRetries: 1
     },
     explore: {
-      fallbackModels: ["antigravity/gemini-3.8-flash:medium"],
+      fallbackModels: ["antigravity/gemini-4-hydrogen:medium"],
       maxRetries: 1
     },
     review: {
-      fallbackModels: ["antigravity/gemini-3.8-flash:medium"],
+      fallbackModels: ["antigravity/gemini-4-hydrogen:medium"],
       maxRetries: 1
     }
   }

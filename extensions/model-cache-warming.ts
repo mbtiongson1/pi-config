@@ -9,14 +9,14 @@ export interface PolicyResolution {
 }
 
 /**
- * Check if the model matches an Antigravity Flash model.
+ * Check if the model matches an Antigravity Flash or Hydrogen model.
  */
 function isAntigravityFlash(provider: string, id: string): boolean {
 	const prov = provider.toLowerCase();
 	const mId = id.toLowerCase();
 	const isAntigravity = prov.includes("antigravity") || prov === "google";
-	const isFlash = mId.includes("flash");
-	return isAntigravity && isFlash;
+	const isFastTier = mId.includes("flash") || mId.includes("hydrogen");
+	return isAntigravity && isFastTier;
 }
 
 /**

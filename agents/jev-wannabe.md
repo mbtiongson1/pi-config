@@ -1,5 +1,5 @@
 ---
-model: antigravity/gemini-3.8-flash:low
+model: antigravity/gemini-4-hydrogen:low
 name: jev-wannabe
 description: Bounded decision classifier mimicking TypeSafe Jev and OpenAI Decisions API for fast triage and routing
 role: classifier

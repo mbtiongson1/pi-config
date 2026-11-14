@@ -1,11 +1,9 @@
 ---
 name: worker
 description: General-purpose subagent with full capabilities, isolated context
-model: antigravity/gemini-3.8-flash:medium
+model: antigravity/gemini-4-hydrogen:medium
 thinking: medium
 spawns: false
-fallback_models:
-  - antigravity/gemini-3.8-flash:medium
 max_retries: 1
 ---
 

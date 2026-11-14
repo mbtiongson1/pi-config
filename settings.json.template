@@ -13,7 +13,7 @@
     "npm:pi-background-tasks"
   ],
   "defaultProvider": "antigravity",
-  "defaultModel": "gemini-3.8-flash",
+  "defaultModel": "gemini-4-hydrogen",
   "defaultThinkingLevel": "high",
   "showCacheMissNotices": true,
   "compaction": {
@@ -23,7 +23,7 @@
   },
   "cacheWarming": "idle",
   "modelCacheWarming": {
-    "antigravity/gemini-3.8-flash": "force",
+    "antigravity/gemini-4-hydrogen": "force",
     "antigravity/*flash*": "streaming",
     "*gpt-6-luna*": "streaming",
     "default": "idle"
@@ -32,7 +32,7 @@
     "defaultModel": "gpt-image-2.6"
   },
   "enabledModels": [
-    "antigravity/gemini-3.8-flash",
+    "antigravity/gemini-4-hydrogen",
     "openai/gpt-6-luna",
     "openai/gpt-6.1-sol",
     "openai/gpt-6-astra",

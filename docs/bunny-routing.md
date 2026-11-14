@@ -206,4 +206,4 @@ git revert <commit>
 
 Removing the extension makes `bunny/minimax-m3.1-flash` unresolvable, so the
 Bunny agents fail fast instead of silently running on another model. The
-default Flash provider (`antigravity/gemini-3.8-flash`) is never affected.
+default Hydrogen provider (`antigravity/gemini-4-hydrogen`) is never affected.

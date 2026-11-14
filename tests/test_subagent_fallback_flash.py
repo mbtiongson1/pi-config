@@ -18,7 +18,7 @@ class SubagentFallbackConfigTests(unittest.TestCase):
         self.assertEqual(data.get("maxRetries"), 1)
         self.assertIn("taskDefaults", data)
         self.assertIn("general", data["taskDefaults"])
-        self.assertEqual(data["taskDefaults"]["general"].get("fallbackModels"), ["antigravity/gemini-3.8-flash:medium"])
+        self.assertEqual(data["taskDefaults"]["general"].get("fallbackModels"), ["antigravity/gemini-4-hydrogen:medium"])
         self.assertEqual(data["taskDefaults"]["general"].get("maxRetries"), 1)
 
     def test_worker_agent_spawns_disabled(self):
@@ -26,16 +26,17 @@ class SubagentFallbackConfigTests(unittest.TestCase):
         self.assertTrue(worker_file.exists())
         content = worker_file.read_text()
         self.assertIn("spawns: false", content)
-        self.assertIn("model: antigravity/gemini-3.8-flash:medium", content)
+        self.assertIn("model: antigravity/gemini-4-hydrogen:medium", content)
         self.assertIn("thinking: medium", content)
+        self.assertNotIn("fallback_models", content)
 
-    def test_flash_workers_spawns_disabled(self):
-        flash_workers = [
-            ("worker-flash-low.md", "low"),
-            ("worker-flash-medium.md", "medium"),
-            ("worker-flash-high.md", "high"),
+    def test_hydrogen_workers_spawns_disabled(self):
+        hydrogen_workers = [
+            ("worker-hydrogen-low.md", "low"),
+            ("worker-hydrogen-medium.md", "medium"),
+            ("worker-hydrogen-high.md", "high"),
         ]
-        for name, expected_thinking in flash_workers:
+        for name, expected_thinking in hydrogen_workers:
             agent_file = AGENTS_DIR / name
             self.assertTrue(agent_file.exists())
             text = agent_file.read_text()
@@ -62,7 +63,7 @@ class SubagentFallbackConfigTests(unittest.TestCase):
             data = json.loads(subagent_file.read_text())
             self.assertEqual(data.get("maxRetries"), 1)
             self.assertIn("taskDefaults", data)
-            self.assertEqual(data["taskDefaults"]["general"]["fallbackModels"], ["antigravity/gemini-3.8-flash:medium"])
+            self.assertEqual(data["taskDefaults"]["general"]["fallbackModels"], ["antigravity/gemini-4-hydrogen:medium"])
 
 
 if __name__ == "__main__":

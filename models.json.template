@@ -12,9 +12,10 @@
             "cacheWrite": 0.1875
           }
         },
-        "gemini-3.8-flash": {
-          "contextWindow": 272000,
-          "promptCache": { "short": 300, "long": 300 }
+        "gemini-4-hydrogen": {
+          "contextWindow": 1048576,
+          "maxTokens": 262144,
+          "promptCache": { "short": 300, "long": 1800 }
         },
         "gemini-3.7-flash": {
           "contextWindow": 272000
@@ -33,9 +34,10 @@
             "cacheWrite": 0.1875
           }
         },
-        "gemini-3.8-flash": {
-          "contextWindow": 272000,
-          "promptCache": { "short": 300, "long": 300 }
+        "gemini-4-hydrogen": {
+          "contextWindow": 1048576,
+          "maxTokens": 262144,
+          "promptCache": { "short": 300, "long": 1800 }
         },
         "gemini-3.7-flash": {
           "contextWindow": 272000

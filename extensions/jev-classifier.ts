@@ -3,7 +3,7 @@
  *
  * Provides a unified, selectable decision engine:
  *   - "actual": Real TypeSafe Jev classifier via System One / OpenRouter
- *   - "mimic-flash": Gemini 3.8 Flash with thinking: off (low latency, multimodal)
+ *   - "mimic-flash": Gemini 4 Hydrogen with thinking: off (low latency, multimodal)
  *   - "mimic-luna": GPT-6 Luna with thinking: off (OpenAI lightweight tier)
  *   - "auto": Prefers actual Jev when authenticated, falls back to mimic-flash
  *
@@ -183,11 +183,11 @@ export default function jevClassifierExtension(pi: ExtensionAPI): void {
 		};
 	}
 
-	// Execute via Mimic LLM (Gemini 3.8 Flash or GPT-6 Luna)
+	// Execute via Mimic LLM (Gemini 4 Hydrogen or GPT-6 Luna)
 	async function executeMimic(target: "mimic-flash" | "mimic-luna", state: any, questions: Record<string, any>, ctx: ExtensionContext) {
 		const isFlash = target === "mimic-flash";
 		const provider = isFlash ? "antigravity" : "openai";
-		const modelId = isFlash ? "gemini-3.8-flash" : "gpt-6-luna";
+		const modelId = isFlash ? "gemini-4-hydrogen" : "gpt-6-luna";
 
 		let physicalModel = ctx.modelRegistry.find(provider, modelId);
 		if (!physicalModel && !isFlash) {
@@ -314,12 +314,16 @@ Questions: ${JSON.stringify(questions)}`;
 
 		if (sub === "mode" || sub === "engine") {
 			const target = parts[1]?.toLowerCase() as ClassifierEngine;
-			if (!["actual", "mimic-flash", "mimic-luna", "auto"].includes(target)) {
-				ctx.ui.notify("Valid modes: 'actual', 'mimic-flash' (or flash), 'mimic-luna' (or luna), 'auto'", "error");
+			if (!["actual", "mimic-flash", "flash", "hydrogen", "mimic-hydrogen", "mimic-luna", "luna", "auto"].includes(target)) {
+				ctx.ui.notify("Valid modes: 'actual', 'mimic-flash' (or hydrogen/flash), 'mimic-luna' (or luna), 'auto'", "error");
 				return;
 			}
 			const mappedTarget: ClassifierEngine =
-				target === ("flash" as any) ? "mimic-flash" : target === ("luna" as any) ? "mimic-luna" : target;
+				target === ("flash" as any) || target === ("hydrogen" as any) || target === ("mimic-hydrogen" as any)
+					? "mimic-flash"
+					: target === ("luna" as any)
+						? "mimic-luna"
+						: target;
 
 			config.engine = mappedTarget;
 			saveConfig(config);
@@ -345,7 +349,7 @@ Questions: ${JSON.stringify(questions)}`;
 		const options = [
 			`Auto (Currently: ${actualJev ? "actual" : "mimic-flash"})`,
 			`Actual Jev (${actualLabel})`,
-			"Mimic: Gemini 3.8 Flash (Antigravity)",
+			"Mimic: Gemini 4 Hydrogen (Antigravity)",
 			"Mimic: GPT-6 Luna (OpenAI Platform / Codex)",
 		];
 
@@ -363,7 +367,7 @@ Questions: ${JSON.stringify(questions)}`;
 	};
 
 	pi.registerCommand("classifier", {
-		description: "Select decision classifier engine: actual Jev vs Gemini Flash vs GPT-6 Luna mimic",
+		description: "Select decision classifier engine: actual Jev vs Gemini 4 Hydrogen vs GPT-6 Luna mimic",
 		handler: commandHandler,
 	});
 

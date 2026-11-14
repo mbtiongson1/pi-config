@@ -1,8 +1,8 @@
 ---
-name: worker-flash-medium
-description: General-purpose 3.8 flash subagent at medium effort, isolated context
-model: antigravity/gemini-3.8-flash:medium
-thinking: medium
+name: worker-hydrogen-high
+description: High-effort Gemini 4 Hydrogen subagent, isolated context
+model: antigravity/gemini-4-hydrogen:high
+thinking: high
 spawns: false
 ---
 

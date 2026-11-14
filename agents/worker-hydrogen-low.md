@@ -1,7 +1,7 @@
 ---
-name: worker-flash-low
-description: Fast 3.8 flash subagent at low effort, isolated context
-model: antigravity/gemini-3.8-flash:low
+name: worker-hydrogen-low
+description: Fast Gemini 4 Hydrogen subagent at low effort, isolated context
+model: antigravity/gemini-4-hydrogen:low
 thinking: low
 spawns: false
 ---
