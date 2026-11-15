@@ -1,0 +1,669 @@
+#!/usr/bin/env python3
+"""Universal terminal command for invoking Pi's default reviewer subagent.
+
+Allows any harness (Pi, Claude, Codex, Hermes, Grok, or plain shell) to run
+Pi's `reviewer` subagent with its configured model, thinking level, read-only
+tools, and system prompt — either synchronously (returning the review result
+directly) or detached in the background (--bg / start / status / wait / result).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+SUBCOMMANDS = {"start", "status", "wait", "result", "kill", "list", "_run"}
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def default_agent_dir() -> Path:
+    return Path(os.environ.get("PI_CODING_AGENT_DIR") or (Path.home() / ".pi" / "agent")).expanduser()
+
+
+def ensure_private_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(path, 0o700)
+    except OSError:
+        pass
+
+
+def state_root_dir() -> Path:
+    override = os.environ.get("PI_REVIEWER_STATE_DIR")
+    if override:
+        root = Path(override).expanduser()
+        ensure_private_dir(root)
+        return root
+    preferred = default_agent_dir() / "tmp" / "reviewer"
+    try:
+        ensure_private_dir(preferred)
+        return preferred
+    except OSError:
+        fallback = Path(f"/tmp/pi-reviewer-{os.getuid()}")
+        if fallback.exists():
+            st = fallback.lstat()
+            if st.st_uid != os.getuid() or stat.S_ISLNK(st.st_mode):
+                raise PermissionError(f"Unsafe fallback state directory: {fallback}")
+        ensure_private_dir(fallback)
+        return fallback
+
+
+def parse_agent_markdown(text: str) -> tuple[dict[str, str], str]:
+    """Parse YAML-style frontmatter and markdown body from an agent definition."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text.strip()
+
+    end_idx = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end_idx = i
+            break
+
+    if end_idx is None:
+        return {}, text.strip()
+
+    meta: dict[str, str] = {}
+    for line in lines[1:end_idx]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if ":" not in stripped:
+            continue
+        key, val = stripped.split(":", 1)
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        meta[key] = val
+
+    body = "\n".join(lines[end_idx + 1 :]).strip()
+    return meta, body
+
+
+def resolve_agent_file(agent_name: str, explicit_path: str | None = None) -> Path:
+    if explicit_path:
+        p = Path(explicit_path).expanduser().resolve()
+        if not p.is_file():
+            raise FileNotFoundError(f"Agent file not found: {p}")
+        return p
+
+    candidates = [
+        default_agent_dir() / "agents" / f"{agent_name}.md",
+        Path(__file__).resolve().parent.parent / "agents" / f"{agent_name}.md",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    searched = ", ".join(str(c) for c in candidates)
+    raise FileNotFoundError(f"Could not find agent '{agent_name}.md'. Searched: {searched}")
+
+
+def resolve_pi_bin() -> str:
+    env_bin = os.environ.get("PI_BIN")
+    if env_bin:
+        p = Path(env_bin).expanduser()
+        if p.is_file() and os.access(p, os.X_OK):
+            return str(p)
+        raise FileNotFoundError(f"PI_BIN is not executable: {env_bin}")
+
+    agent_pi = default_agent_dir() / "bin" / "pi"
+    if agent_pi.is_file() and os.access(agent_pi, os.X_OK):
+        return str(agent_pi)
+
+    which_pi = shutil.which("pi")
+    if which_pi:
+        return which_pi
+
+    raise FileNotFoundError("Could not locate 'pi' CLI executable on PATH or under PI_CODING_AGENT_DIR/bin/pi.")
+
+
+def normalize_tools(tools_raw: str | None) -> str:
+    if not tools_raw:
+        return "read,grep,find,ls"
+    items = [t.strip() for t in tools_raw.split(",") if t.strip()]
+    return ",".join(items) if items else "read,grep,find,ls"
+
+
+def build_pi_command(
+    pi_bin: str,
+    prompt: str,
+    model: str | None,
+    thinking: str | None,
+    tools: str | None,
+    system_prompt: str | None,
+    with_extensions: bool = False,
+) -> list[str]:
+    cmd: list[str] = [pi_bin, "-p", "--no-session"]
+    if not with_extensions:
+        cmd.extend(["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes"])
+    if model:
+        cmd.extend(["--model", model])
+    if thinking:
+        cmd.extend(["--thinking", thinking])
+    if tools:
+        cmd.extend(["--tools", tools])
+    if system_prompt:
+        cmd.extend(["--system-prompt", system_prompt])
+    cmd.extend(["--", prompt])
+    return cmd
+
+
+def read_prompt_input(prompt_args: list[str], prompt_file: str | None) -> str:
+    if prompt_file:
+        p = Path(prompt_file).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(f"Prompt file not found: {p}")
+        text = p.read_text(encoding="utf-8").strip()
+        if not text:
+            raise ValueError(f"Prompt file is empty: {p}")
+        return text
+
+    if prompt_args == ["-"]:
+        text = sys.stdin.read().strip()
+        if not text:
+            raise ValueError("No prompt received on stdin.")
+        return text
+
+    if prompt_args:
+        text = " ".join(prompt_args).strip()
+        if text:
+            return text
+
+    if not sys.stdin.isatty():
+        text = sys.stdin.read().strip()
+        if text:
+            return text
+
+    raise ValueError("A review brief/prompt is required (pass as argument, --prompt-file, or via stdin).")
+
+
+def is_pid_alive(pid: int | None) -> bool:
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    tmp = path.with_suffix(".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, indent=2) + "\n")
+    tmp.replace(path)
+
+
+def load_job_meta(job_id_or_prefix: str) -> tuple[Path, dict[str, Any]]:
+    root = state_root_dir()
+    exact = root / job_id_or_prefix
+    if exact.is_dir() and (exact / "meta.json").is_file():
+        job_dir = exact
+    else:
+        matches = sorted(
+            [d for d in root.iterdir() if d.is_dir() and d.name.startswith(job_id_or_prefix) and (d / "meta.json").is_file()]
+        )
+        if not matches:
+            raise FileNotFoundError(f"No reviewer job matching '{job_id_or_prefix}' in {root}")
+        if len(matches) > 1:
+            names = ", ".join(m.name for m in matches[:5])
+            raise ValueError(f"Ambiguous job prefix '{job_id_or_prefix}'; matches: {names}")
+        job_dir = matches[0]
+
+    meta = json.loads((job_dir / "meta.json").read_text(encoding="utf-8"))
+    if meta.get("status") in {"starting", "running"} and meta.get("pid") and not is_pid_alive(meta.get("pid")):
+        meta["status"] = "failed"
+        meta["finished_at"] = meta.get("finished_at") or utc_now_iso()
+        meta["error"] = meta.get("error") or "Runner process exited unexpectedly"
+        write_json_atomic(job_dir / "meta.json", meta)
+    return job_dir, meta
+
+
+def resolve_review_spec(args: argparse.Namespace) -> dict[str, Any]:
+    agent_path = resolve_agent_file(args.agent, args.agent_file)
+    agent_meta, agent_body = parse_agent_markdown(agent_path.read_text(encoding="utf-8"))
+
+    model = args.model or agent_meta.get("model")
+    thinking = args.thinking or agent_meta.get("thinking")
+    tools = normalize_tools(args.tools or agent_meta.get("tools"))
+    cwd = str(Path(args.cwd).expanduser().resolve()) if args.cwd else os.getcwd()
+    if not Path(cwd).is_dir():
+        raise NotADirectoryError(f"Working directory does not exist: {cwd}")
+
+    return {
+        "agent": args.agent,
+        "agent_file": str(agent_path),
+        "model": model,
+        "thinking": thinking,
+        "tools": tools,
+        "system_prompt": agent_body,
+        "cwd": cwd,
+        "pi_bin": resolve_pi_bin(),
+        "with_extensions": args.with_extensions,
+    }
+
+
+def cmd_run_sync(args: argparse.Namespace, prompt: str) -> int:
+    spec = resolve_review_spec(args)
+    cmd = build_pi_command(
+        pi_bin=spec["pi_bin"],
+        prompt=prompt,
+        model=spec["model"],
+        thinking=spec["thinking"],
+        tools=spec["tools"],
+        system_prompt=spec["system_prompt"],
+        with_extensions=spec["with_extensions"],
+    )
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=spec["cwd"],
+            text=True,
+            capture_output=True,
+            timeout=args.timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "status": "timeout",
+                        "exit_code": 124,
+                        "agent": spec["agent"],
+                        "model": spec["model"],
+                        "thinking": spec["thinking"],
+                        "tools": spec["tools"],
+                        "cwd": spec["cwd"],
+                        "result": (exc.stdout or "").strip(),
+                        "stderr": (exc.stderr or "").strip(),
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            sys.stderr.write(f"pi-reviewer: timed out after {args.timeout}s\n")
+        return 124
+
+    if args.json:
+        payload = {
+            "status": "completed" if proc.returncode == 0 else "failed",
+            "exit_code": proc.returncode,
+            "agent": spec["agent"],
+            "model": spec["model"],
+            "thinking": spec["thinking"],
+            "tools": spec["tools"],
+            "cwd": spec["cwd"],
+            "result": proc.stdout.strip(),
+            "stderr": proc.stderr.strip(),
+        }
+        print(json.dumps(payload, indent=2))
+        return proc.returncode
+
+    if proc.stdout:
+        sys.stdout.write(proc.stdout)
+        if not proc.stdout.endswith("\n"):
+            sys.stdout.write("\n")
+    if proc.returncode != 0 and proc.stderr:
+        sys.stderr.write(proc.stderr)
+    return proc.returncode
+
+
+def cmd_start_bg(args: argparse.Namespace, prompt: str) -> int:
+    spec = resolve_review_spec(args)
+    root = state_root_dir()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    job_id = f"rev-{stamp}-{uuid.uuid4().hex[:6]}"
+    job_dir = root / job_id
+    ensure_private_dir(job_dir)
+
+    prompt_path = job_dir / "prompt.txt"
+    fd = os.open(prompt_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(prompt)
+
+    cmd = build_pi_command(
+        pi_bin=spec["pi_bin"],
+        prompt=prompt,
+        model=spec["model"],
+        thinking=spec["thinking"],
+        tools=spec["tools"],
+        system_prompt=spec["system_prompt"],
+        with_extensions=spec["with_extensions"],
+    )
+
+    meta: dict[str, Any] = {
+        "id": job_id,
+        "status": "starting",
+        "pid": None,
+        "agent": spec["agent"],
+        "agent_file": spec["agent_file"],
+        "model": spec["model"],
+        "thinking": spec["thinking"],
+        "tools": spec["tools"],
+        "cwd": spec["cwd"],
+        "timeout": args.timeout,
+        "created_at": utc_now_iso(),
+        "started_at": None,
+        "finished_at": None,
+        "exit_code": None,
+        "prompt_preview": re.sub(r"\s+", " ", prompt).strip()[:160],
+        "stdout_file": str(job_dir / "stdout.log"),
+        "stderr_file": str(job_dir / "stderr.log"),
+        "cmd": cmd,
+    }
+    write_json_atomic(job_dir / "meta.json", meta)
+
+    runner = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "_run", str(job_dir)],
+        cwd=spec["cwd"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    # Brief wait so _run records its PID and status
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        current = json.loads((job_dir / "meta.json").read_text(encoding="utf-8"))
+        if current.get("status") != "starting":
+            meta = current
+            break
+        time.sleep(0.05)
+
+    if meta.get("pid") is None:
+        meta["pid"] = runner.pid
+        if meta.get("status") == "starting" and not is_pid_alive(runner.pid):
+            meta["status"] = "failed"
+            meta["finished_at"] = utc_now_iso()
+            meta["error"] = "Runner process exited before starting"
+        write_json_atomic(job_dir / "meta.json", meta)
+
+    if args.json:
+        out = {k: v for k, v in meta.items() if k != "cmd"}
+        print(json.dumps(out, indent=2))
+    else:
+        print(f"job_id={job_id}")
+        print(f"status={meta.get('status')}")
+        print(f"pid={meta.get('pid')}")
+        print(f"agent={meta.get('agent')} model={meta.get('model')} thinking={meta.get('thinking')}")
+        print(f"stdout_file={meta.get('stdout_file')}")
+        print(f"wait_cmd=pi-reviewer wait {job_id}")
+    return 0
+
+
+def cmd_internal_run(job_dir_str: str) -> int:
+    job_dir = Path(job_dir_str)
+    meta_path = job_dir / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+    meta["pid"] = os.getpid()
+    meta["status"] = "running"
+    meta["started_at"] = utc_now_iso()
+    write_json_atomic(meta_path, meta)
+
+    stdout_path = Path(meta["stdout_file"])
+    stderr_path = Path(meta["stderr_file"])
+    timeout = meta.get("timeout")
+
+    exit_code = 1
+    status = "failed"
+    error_msg = None
+
+    with (
+        os.fdopen(os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as out_f,
+        os.fdopen(os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as err_f,
+    ):
+        proc = subprocess.Popen(
+            meta["cmd"],
+            cwd=meta["cwd"],
+            stdin=subprocess.DEVNULL,
+            stdout=out_f,
+            stderr=err_f,
+        )
+        meta["child_pid"] = proc.pid
+        write_json_atomic(meta_path, meta)
+
+        try:
+            exit_code = proc.wait(timeout=timeout)
+            status = "completed" if exit_code == 0 else "failed"
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            exit_code = 124
+            status = "timeout"
+            error_msg = f"Timed out after {timeout}s"
+
+    meta["status"] = status
+    meta["exit_code"] = exit_code
+    meta["finished_at"] = utc_now_iso()
+    if error_msg:
+        meta["error"] = error_msg
+    write_json_atomic(meta_path, meta)
+    return exit_code
+
+
+def cmd_status(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="pi-reviewer status")
+    parser.add_argument("job_id")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+
+    _, meta = load_job_meta(args.job_id)
+    if args.json:
+        out = {k: v for k, v in meta.items() if k != "cmd"}
+        print(json.dumps(out, indent=2))
+    else:
+        print(f"job_id={meta['id']} status={meta['status']} exit_code={meta.get('exit_code')} pid={meta.get('pid')}")
+        print(f"agent={meta.get('agent')} model={meta.get('model')} cwd={meta.get('cwd')}")
+        print(f"stdout_file={meta.get('stdout_file')}")
+    return 0
+
+
+def cmd_wait(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="pi-reviewer wait")
+    parser.add_argument("job_id")
+    parser.add_argument("--timeout", type=float, default=None, help="Max seconds to wait")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+
+    deadline = (time.monotonic() + args.timeout) if args.timeout is not None else None
+    while True:
+        job_dir, meta = load_job_meta(args.job_id)
+        if meta["status"] not in {"starting", "running"}:
+            break
+        if deadline is not None and time.monotonic() >= deadline:
+            if args.json:
+                print(json.dumps({"id": meta["id"], "status": "running", "timed_out_waiting": True}, indent=2))
+            else:
+                sys.stderr.write(f"pi-reviewer: still running after {args.timeout}s wait ({meta['id']})\n")
+            return 124
+        time.sleep(0.25)
+
+    stdout_text = Path(meta["stdout_file"]).read_text(encoding="utf-8") if Path(meta["stdout_file"]).is_file() else ""
+    stderr_text = Path(meta["stderr_file"]).read_text(encoding="utf-8") if Path(meta["stderr_file"]).is_file() else ""
+    exit_code = int(meta.get("exit_code") if meta.get("exit_code") is not None else 1)
+
+    if args.json:
+        out = {k: v for k, v in meta.items() if k != "cmd"}
+        out["result"] = stdout_text.strip()
+        out["stderr"] = stderr_text.strip()
+        print(json.dumps(out, indent=2))
+    else:
+        if stdout_text:
+            sys.stdout.write(stdout_text)
+            if not stdout_text.endswith("\n"):
+                sys.stdout.write("\n")
+        if exit_code != 0 and stderr_text:
+            sys.stderr.write(stderr_text)
+    return exit_code
+
+
+def cmd_result(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="pi-reviewer result")
+    parser.add_argument("job_id")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+
+    _, meta = load_job_meta(args.job_id)
+    if meta["status"] in {"starting", "running"}:
+        if args.json:
+            print(json.dumps({"id": meta["id"], "status": meta["status"]}, indent=2))
+        else:
+            sys.stderr.write(f"pi-reviewer: job {meta['id']} is still {meta['status']}\n")
+        return 2
+
+    stdout_text = Path(meta["stdout_file"]).read_text(encoding="utf-8") if Path(meta["stdout_file"]).is_file() else ""
+    stderr_text = Path(meta["stderr_file"]).read_text(encoding="utf-8") if Path(meta["stderr_file"]).is_file() else ""
+    exit_code = int(meta.get("exit_code") if meta.get("exit_code") is not None else 1)
+
+    if args.json:
+        out = {k: v for k, v in meta.items() if k != "cmd"}
+        out["result"] = stdout_text.strip()
+        out["stderr"] = stderr_text.strip()
+        print(json.dumps(out, indent=2))
+    else:
+        if stdout_text:
+            sys.stdout.write(stdout_text)
+            if not stdout_text.endswith("\n"):
+                sys.stdout.write("\n")
+        if exit_code != 0 and stderr_text:
+            sys.stderr.write(stderr_text)
+    return exit_code
+
+
+def cmd_kill(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="pi-reviewer kill")
+    parser.add_argument("job_id")
+    args = parser.parse_args(argv)
+
+    job_dir, meta = load_job_meta(args.job_id)
+    if meta["status"] not in {"starting", "running"}:
+        print(f"job_id={meta['id']} status={meta['status']} signal_sent=false")
+        return 0
+
+    killed = False
+    for pid_key in ("child_pid", "pid"):
+        pid = meta.get(pid_key)
+        if is_pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGTERM)
+                killed = True
+            except OSError:
+                pass
+    meta["status"] = "killed"
+    meta["finished_at"] = utc_now_iso()
+    meta["exit_code"] = 143
+    write_json_atomic(job_dir / "meta.json", meta)
+    print(f"job_id={meta['id']} status=killed signal_sent={str(killed).lower()}")
+    return 0
+
+
+def cmd_list(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="pi-reviewer list")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--limit", type=int, default=20)
+    args = parser.parse_args(argv)
+
+    root = state_root_dir()
+    jobs = []
+    for d in sorted(root.iterdir(), key=lambda p: p.name, reverse=True):
+        meta_path = d / "meta.json"
+        if not d.is_dir() or not meta_path.is_file():
+            continue
+        _, meta = load_job_meta(d.name)
+        jobs.append({k: v for k, v in meta.items() if k != "cmd"})
+        if len(jobs) >= args.limit:
+            break
+
+    if args.json:
+        print(json.dumps(jobs, indent=2))
+    else:
+        if not jobs:
+            print("No reviewer jobs found.")
+        for j in jobs:
+            print(f"{j['id']}  {j['status']:9s}  {j.get('model') or '-':30s}  {j.get('prompt_preview', '')}")
+    return 0
+
+
+def build_main_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="pi-reviewer",
+        description="Run Pi's default reviewer subagent from any terminal or harness.",
+    )
+    parser.add_argument("prompt", nargs="*", help="Review brief/prompt (or '-' to read from stdin)")
+    parser.add_argument("--bg", action="store_true", help="Launch detached in background and return a job receipt")
+    parser.add_argument("--agent", default="reviewer", help="Pi agent name to load (default: reviewer)")
+    parser.add_argument("--agent-file", default=None, help="Explicit path to agent markdown file")
+    parser.add_argument("--model", default=None, help="Override model from agent definition")
+    parser.add_argument("--thinking", default=None, help="Override thinking level from agent definition")
+    parser.add_argument("--tools", default=None, help="Override read-only tools allowlist")
+    parser.add_argument("--cwd", default=None, help="Target working directory for review")
+    parser.add_argument("--prompt-file", default=None, help="Read review brief/prompt from a file")
+    parser.add_argument("--timeout", type=float, default=None, help="Execution timeout in seconds")
+    parser.add_argument("--with-extensions", action="store_true", help="Load Pi extensions instead of --no-extensions")
+    parser.add_argument("--json", action="store_true", help="Emit structured JSON output")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    if argv and argv[0] in SUBCOMMANDS:
+        sub = argv[0]
+        rest = argv[1:]
+        if sub == "_run":
+            if not rest:
+                sys.stderr.write("pi-reviewer _run requires <job_dir>\n")
+                return 2
+            return cmd_internal_run(rest[0])
+        if sub == "status":
+            return cmd_status(rest)
+        if sub == "wait":
+            return cmd_wait(rest)
+        if sub == "result":
+            return cmd_result(rest)
+        if sub == "kill":
+            return cmd_kill(rest)
+        if sub == "list":
+            return cmd_list(rest)
+        if sub == "start":
+            parser = build_main_parser()
+            args = parser.parse_args(rest)
+            args.bg = True
+            prompt = read_prompt_input(args.prompt, args.prompt_file)
+            return cmd_start_bg(args, prompt)
+
+    parser = build_main_parser()
+    args = parser.parse_args(argv)
+    prompt = read_prompt_input(args.prompt, args.prompt_file)
+    if args.bg:
+        return cmd_start_bg(args, prompt)
+    return cmd_run_sync(args, prompt)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+        sys.stderr.write(f"pi-reviewer: {exc}\n")
+        raise SystemExit(2)
