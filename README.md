@@ -81,6 +81,7 @@ by diffing agents, extensions, prompts, and bin.
 | `extensions/masthead.ts` | Topmost Pi header showing live session title, start timestamp, and current GitHub PR |
 | `extensions/bunny-router.ts` | Registers the stable `bunny/minimax-m3.1-flash` virtual model and resolves its physical route per request |
 | `extensions/bunny-route.mjs` | Pure, testable Bunny routing core (schedule, credit gates, failure diagnostics) |
+| `extensions/antigravity-prompt-compat.ts` | Antigravity-only compatibility for prompt-triggered false 429s; preserves system priority and survives provider updates |
 | `statusline.json.template` | Default statusline settings (`showExtensions: false` clean default) |
 | `prompts/` | Prompt templates |
 | `themes/` | Dark-mode-first custom themes (`favor-cream`, `favor-dark`, `favor-events`, `favor-finance-green`, `favor-indigo`, `favor-watershed`, `finance-editorial`, `gaia-research`, `gaia-skill-tree`) |
@@ -185,6 +186,19 @@ bash bin/device-models.sh disable
 Details: [`device-profiles/README.md`](device-profiles/README.md).
 
 ---
+
+## Antigravity prompt compatibility
+
+The local-first `antigravity-prompt-compat.ts` extension addresses the recurring
+prompt-related `429 RESOURCE_EXHAUSTED` seen with pi-antigravity 0.14.0. It
+rewords only the known stock opener and a documentation-index phrase, without
+removing rules, changing tools, or moving instructions out of system priority.
+It is copied with the other managed extensions; use `/reload` after installation.
+Set `ANTIGRAVITY_PROMPT_COMPAT=off` before starting Pi to disable it.
+
+The quota-line launcher repair also preserves user-owned HA policies and package
+removals instead of re-enabling the separate crashing retry integration.
+See [setup, tests, limitations, and upstream context](docs/antigravity-prompt-compat.md).
 
 ## Antigravity cache warming
 

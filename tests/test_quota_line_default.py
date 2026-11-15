@@ -58,7 +58,7 @@ class QuotaLineDefaultTests(unittest.TestCase):
             self.assertEqual(res.returncode, 0, res.stderr)
             data = json.loads(settings_file.read_text())
             self.assertEqual(data.get("quota", {}).get("surface"), "line")
-            self.assertIn("npm:pi-high-availability", data.get("packages", []))
+            self.assertNotIn("npm:pi-high-availability", data.get("packages", []))
 
             # Verify ha.json initialization
             ha_file = agent_dir / "ha.json"
@@ -73,6 +73,25 @@ class QuotaLineDefaultTests(unittest.TestCase):
             self.assertEqual(res.returncode, 0, res.stderr)
             data = json.loads(settings_file.read_text())
             self.assertEqual(data.get("quota", {}).get("surface"), "line")
+
+    def test_existing_ha_choices_and_package_removal_survive_launch_repair(self):
+        with tempfile.TemporaryDirectory() as td:
+            agent_dir = Path(td) / "agent"
+            agent_dir.mkdir()
+            settings_file = agent_dir / "settings.json"
+            settings_file.write_text(json.dumps({"packages": ["npm:pi-background-tasks"], "quota": {"surface": "line"}}))
+            ha_file = agent_dir / "ha.json"
+            original_ha = json.dumps({"errorHandling": {
+                "quotaErrorAction": "stop", "capacityErrorAction": "stop",
+                "networkErrorAction": "stop", "retryTimeoutMs": 12345,
+            }})
+            ha_file.write_text(original_ha)
+            env = {**os.environ, "PI_CODING_AGENT_DIR": str(agent_dir)}
+            for _ in range(2):
+                result = subprocess.run(["bash", str(ENSURE_SCRIPT)], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(ha_file.read_text(), original_ha)
+                self.assertEqual(json.loads(settings_file.read_text())["packages"], ["npm:pi-background-tasks"])
 
     def test_ensure_quota_line_patches_panel_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:

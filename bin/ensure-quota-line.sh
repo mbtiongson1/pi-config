@@ -132,22 +132,9 @@ else
         const data = JSON.parse(fs.readFileSync(path, "utf-8"));
         data.errorHandling = data.errorHandling || {};
         let changed = false;
-        if (data.errorHandling.quotaErrorAction !== "retry") {
-          data.errorHandling.quotaErrorAction = "retry";
-          changed = true;
-        }
-        if (data.errorHandling.capacityErrorAction !== "retry") {
-          data.errorHandling.capacityErrorAction = "retry";
-          changed = true;
-        }
-        if (data.errorHandling.networkErrorAction !== "retry") {
-          data.errorHandling.networkErrorAction = "retry";
-          changed = true;
-        }
-        if (!data.errorHandling.retryTimeoutMs) {
-          data.errorHandling.retryTimeoutMs = 300000;
-          changed = true;
-        }
+        // Disabled 2026-11-14: this forced every error class back to "retry", which
+        // re-armed the pi-high-availability stale-ctx retry timer on each launch
+        // and crashed Pi. ha.json errorHandling is now user-owned; do not overwrite it.
         if (changed) {
           fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf-8");
           console.log("Updated quota renewal errorHandling in: " + path);
@@ -163,12 +150,11 @@ if [[ -f "$settings_file" ]]; then
       const path = process.argv[1];
       try {
         const data = JSON.parse(fs.readFileSync(path, "utf-8"));
+        // Disabled 2026-11-14: forced npm:pi-high-availability back into settings.json
+        // on every launch, so `pi remove` never stuck and the crashing extension
+        // returned on the next start. Package installs stay user-owned.
         if (Array.isArray(data.packages)) {
-          if (!data.packages.includes("npm:pi-high-availability")) {
-            data.packages.push("npm:pi-high-availability");
-            fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf-8");
-            console.log("Bundled npm:pi-high-availability in packages: " + path);
-          }
+          void data.packages;
         }
       } catch (e) {}
     ' "$settings_file"
