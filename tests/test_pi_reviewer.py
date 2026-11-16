@@ -205,3 +205,63 @@ class TestPiReviewer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPiReviewerStdinAndTimeout(unittest.TestCase):
+    """Regression: sync mode inherited the caller's stdin, so `pi -p` waited forever on an
+    open pipe; and a timeout crashed while serializing bytes stderr."""
+
+    def _env(self, tmp_path: Path, fake_body: str) -> dict:
+        agent_dir = tmp_path / "agent"
+        (agent_dir / "agents").mkdir(parents=True)
+        (agent_dir / "agents" / "reviewer.md").write_text(
+            "---\nname: reviewer\nmodel: openai-codex/gpt-6.1-terra:high\nthinking: high\n"
+            "tools: read, grep, find, ls, bash\n---\n\nYou are the test reviewer.\n",
+            encoding="utf-8",
+        )
+        fake_pi = make_fake_pi(tmp_path, fake_body)
+        env = os.environ.copy()
+        env["PI_CODING_AGENT_DIR"] = str(agent_dir)
+        env["PI_BIN"] = str(fake_pi)
+        env["PI_REVIEWER_STATE_DIR"] = str(tmp_path / "state")
+        return env
+
+    def test_sync_does_not_inherit_open_stdin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            # The fake pi reads stdin to EOF like `pi -p` does with piped input.
+            env = self._env(tmp_path, "import sys\ndata = sys.stdin.read()\nprint('READ', len(data))\n")
+            proc = subprocess.Popen(
+                [str(SCRIPT_PATH), "--json", "--timeout", "30", "Review my diff"],
+                env=env, cwd=tmp_path, text=True,
+                stdin=subprocess.PIPE,  # deliberately left open, never closed
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            try:
+                out, err = proc.communicate(timeout=20)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                self.fail("pi-reviewer blocked on the caller's open stdin")
+            self.assertEqual(proc.returncode, 0, err)
+            payload = json.loads(out)
+            self.assertEqual(payload["status"], "completed")
+            self.assertIn("READ 0", payload["result"])
+
+    def test_timeout_emits_valid_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            env = self._env(
+                tmp_path,
+                "import sys, time\nsys.stderr.write('partial stderr\\n')\nsys.stderr.flush()\ntime.sleep(60)\n",
+            )
+            started = time.monotonic()
+            proc = subprocess.run(
+                [str(SCRIPT_PATH), "--json", "--timeout", "2", "Review my diff"],
+                env=env, cwd=tmp_path, text=True, capture_output=True,
+                stdin=subprocess.DEVNULL, check=False, timeout=40,
+            )
+            self.assertLess(time.monotonic() - started, 30, "timeout did not kill the child tree")
+            self.assertEqual(proc.returncode, 124, proc.stderr)
+            payload = json.loads(proc.stdout)
+            self.assertEqual(payload["status"], "timeout")
+            self.assertIsInstance(payload["stderr"], str)

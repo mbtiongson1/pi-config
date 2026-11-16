@@ -261,6 +261,15 @@ def resolve_review_spec(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _as_text(value: Any) -> str:
+    """TimeoutExpired carries bytes even when text=True; never crash serializing it."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 def cmd_run_sync(args: argparse.Namespace, prompt: str) -> int:
     spec = resolve_review_spec(args)
     cmd = build_pi_command(
@@ -273,15 +282,35 @@ def cmd_run_sync(args: argparse.Namespace, prompt: str) -> int:
         with_extensions=spec["with_extensions"],
     )
 
+    # stdin=DEVNULL: `pi -p` reads piped stdin as extra prompt input; an inherited
+    # pipe that never closes (background shells, harness tool runners) made the
+    # reviewer wait forever. start_new_session lets a timeout kill the whole tree
+    # (pi plus any shell commands the reviewer launched), not just the direct child.
+    class _Done:
+        pass
+    popen = subprocess.Popen(
+        cmd,
+        cwd=spec["cwd"],
+        text=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=spec["cwd"],
-            text=True,
-            capture_output=True,
-            timeout=args.timeout,
-        )
+        out, err = popen.communicate(timeout=args.timeout)
+        proc = _Done()
+        proc.returncode, proc.stdout, proc.stderr = popen.returncode, out or "", err or ""
     except subprocess.TimeoutExpired as exc:
+        try:
+            os.killpg(popen.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            popen.kill()
+        try:
+            out, err = popen.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            out, err = exc.stdout, exc.stderr
+        exc.stdout, exc.stderr = out, err
         if args.json:
             print(
                 json.dumps(
@@ -293,8 +322,8 @@ def cmd_run_sync(args: argparse.Namespace, prompt: str) -> int:
                         "thinking": spec["thinking"],
                         "tools": spec["tools"],
                         "cwd": spec["cwd"],
-                        "result": (exc.stdout or "").strip(),
-                        "stderr": (exc.stderr or "").strip(),
+                        "result": _as_text(exc.stdout).strip(),
+                        "stderr": _as_text(exc.stderr).strip(),
                     },
                     indent=2,
                 )
