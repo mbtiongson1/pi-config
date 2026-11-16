@@ -19,12 +19,16 @@ class TestTerraModelConfig(unittest.TestCase):
                 content = agent_file.read_text(encoding="utf-8")
                 self.assertIn(f"model: {expected_model}", content)
 
-    def test_reviewer_is_read_only(self):
+    def test_reviewer_bash_is_verification_only(self):
+        # Founder decision 2026-11-16: the reviewer may use bash to verify (git, tests,
+        # builds) but must never mutate state. Edit tools stay absent.
         agents_dir = REPO_ROOT / "agents"
-        reviewer_file = agents_dir / "reviewer.md"
-        content = reviewer_file.read_text(encoding="utf-8")
-        self.assertIn("tools: read, grep, find, ls", content)
-        self.assertNotIn("bash", content)
+        content = (agents_dir / "reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("tools: read, grep, find, ls, bash", content)
+        for forbidden in ("edit", "write"):
+            self.assertNotIn(forbidden + ",", content.split("tools:", 1)[1].splitlines()[0])
+        self.assertIn("Bash is for verification only", content)
+        self.assertIn("Never modify tracked files, commit, push", content)
 
 
 if __name__ == "__main__":

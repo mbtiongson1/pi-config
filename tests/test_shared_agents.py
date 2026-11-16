@@ -61,9 +61,10 @@ class SharedAgentTests(unittest.TestCase):
                 self.assertNotIn("max_turns", shared)
                 self.assertNotIn("antigravity/", shared["fallback_models"])
 
-    def test_reviewer_shared_remains_read_only_terra_high(self):
-        fields, _ = parse(AGENTS / "reviewer-shared.md")
-        self.assertEqual(fields["tools"], "read, grep, find, ls")
+    def test_reviewer_shared_verification_bash_terra_high(self):
+        fields, body = parse(AGENTS / "reviewer-shared.md")
+        self.assertEqual(fields["tools"], "read, grep, find, ls, bash")
+        self.assertIn("Bash is for verification only", body)
         self.assertEqual(fields["model"], "openai-codex/gpt-6.1-terra:high")
         self.assertEqual(fields["thinking"], "high")
 
