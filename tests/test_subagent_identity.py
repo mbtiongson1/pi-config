@@ -10,7 +10,7 @@ class TestSubagentIdentity(unittest.TestCase):
         known_models = {
             "gemini-4-hydrogen": "Gemini 4 Hydrogen",
             "claude-sonnet-5-5": "Claude Sonnet 5.5",
-            "gpt-6.1-sol": "GPT-6.1 Sol",
+            "gpt-6.2-sol": "GPT-6.2 Sol",
         }
         
         def format_model(model_str):
@@ -38,7 +38,7 @@ class TestSubagentIdentity(unittest.TestCase):
     def test_parallel_agent_identity_distinction(self):
         tasks = [
             {"agent": "worker-hydrogen-high", "model": "antigravity/gemini-4-hydrogen", "thinking": "high", "task": "Task 1"},
-            {"agent": "worker-sol", "model": "openai/gpt-6.1-sol", "thinking": "medium", "task": "Task 2"},
+            {"agent": "worker-sol", "model": "openai/gpt-6.2-sol", "thinking": "medium", "task": "Task 2"},
             {"agent": "reviewer", "model": "openai-codex/gpt-6.1-terra", "thinking": "high", "task": "Task 3"}
         ]
         
@@ -48,7 +48,7 @@ class TestSubagentIdentity(unittest.TestCase):
         self.assertEqual(tasks[0]["thinking"], "high")
         
         self.assertEqual(tasks[1]["agent"], "worker-sol")
-        self.assertEqual(tasks[1]["model"], "openai/gpt-6.1-sol")
+        self.assertEqual(tasks[1]["model"], "openai/gpt-6.2-sol")
         self.assertEqual(tasks[1]["thinking"], "medium")
 
         self.assertEqual(tasks[2]["agent"], "reviewer")

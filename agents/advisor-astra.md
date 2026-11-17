@@ -2,7 +2,7 @@
 name: advisor-astra
 description: One-round expert advisor for high-stakes decisions. Requires fully scoped context — no tool use, pure reasoning only.
 role: advisor
-model: openai/gpt-6-astra:max
+model: openai/gpt-6.2-astra:max
 thinking: max
 ---
 

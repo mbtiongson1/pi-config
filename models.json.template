@@ -59,7 +59,7 @@
           "contextWindow": 272000,
           "promptCache": { "short": 300, "long": 1800 }
         },
-        "gpt-6-astra": {
+        "gpt-6.2-astra": {
           "contextWindow": 272000,
           "maxTokens": 128000,
           "promptCache": { "short": 300, "long": 1800 }
@@ -74,8 +74,7 @@
           "maxTokens": 128000,
           "promptCache": { "short": 300, "long": 1800 }
         },
-        "gpt-6.1-sol": {
-          "contextWindow": 272000,
+        "gpt-6.2-sol": {
           "maxTokens": 128000,
           "promptCache": { "short": 300, "long": 1800 }
         }
@@ -101,7 +100,7 @@
           "contextWindow": 1050000,
           "promptCache": { "short": 300, "long": 1800 }
         },
-        "gpt-6-astra": {
+        "gpt-6.2-astra": {
           "contextWindow": 1050000,
           "promptCache": { "short": 300, "long": 1800 }
         },
@@ -112,7 +111,7 @@
           "contextWindow": 1050000,
           "promptCache": { "short": 300, "long": 1800 }
         },
-        "gpt-6.1-sol": {
+        "gpt-6.2-sol": {
           "promptCache": { "short": 300, "long": 1800 }
         }
       }

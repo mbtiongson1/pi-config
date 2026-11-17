@@ -13,17 +13,17 @@ or global retry/default settings are changed by adding these files.
 |---|---|---|
 | `worker-luna-shared` | `openai-codex/gpt-6-luna` | medium |
 | `worker-luna-high-shared` | `openai-codex/gpt-6-luna` | high |
-| `worker-sol-shared` | `openai-codex/gpt-6.1-sol` | medium |
+| `worker-sol-shared` | `openai-codex/gpt-6.2-sol` | medium |
 | `worker-terra-shared` | `openai-codex/gpt-6.1-terra` | medium |
-| `worker-astra-shared` | `openai-codex/gpt-6-astra` | medium |
+| `worker-astra-shared` | `openai-codex/gpt-6.2-astra` | medium |
 | `scout-luna-shared` | `openai-codex/gpt-6-luna` | minimal |
 | `reviewer-shared` | `openai-codex/gpt-6.1-terra` | high |
 | `planner-shared` | `openai-codex/gpt-6.1-terra` | maximum |
 | `planner-terra-shared` | `openai-codex/gpt-6.1-terra` | maximum |
-| `planner-sol-shared` | `openai-codex/gpt-6.1-sol` | maximum |
-| `advisor-shared` | `openai-codex/gpt-6-astra` | maximum |
-| `advisor-astra-shared` | `openai-codex/gpt-6-astra` | maximum |
-| `writer-sol-low-shared` | `openai-codex/gpt-6.1-sol` | low |
+| `planner-sol-shared` | `openai-codex/gpt-6.2-sol` | maximum |
+| `advisor-shared` | `openai-codex/gpt-6.2-astra` | maximum |
+| `advisor-astra-shared` | `openai-codex/gpt-6.2-astra` | maximum |
+| `writer-sol-low-shared` | `openai-codex/gpt-6.2-sol` | low |
 
 Bodies and roles match their corresponding originals. Tool declarations are
 preserved, except advisors explicitly enforce their existing pure-reasoning

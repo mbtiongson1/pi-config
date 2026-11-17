@@ -1,10 +1,10 @@
 ---
 name: worker-astra-shared
-description: Worker agent powered by GPT 6 Astra Medium (shared via openai-codex)
+description: Worker agent powered by GPT 6.2 Astra Medium (shared via openai-codex)
 role: worker
-model: openai-codex/gpt-6-astra:medium
+model: openai-codex/gpt-6.2-astra:medium
 thinking: medium
-fallback_models: [openai-codex/gpt-6-astra:medium]
+fallback_models: [openai-codex/gpt-6.2-astra:medium]
 max_retries: 0
 ---
 

@@ -1,10 +1,10 @@
 ---
-model: openai-codex/gpt-6.1-sol:medium
+model: openai-codex/gpt-6.2-sol:medium
 name: worker-sol-shared
-description: Worker agent powered by GPT 6.1 Sol Medium (shared via openai-codex)
+description: Worker agent powered by GPT 6.2 Sol Medium (shared via openai-codex)
 role: worker
 thinking: medium
-fallback_models: [openai-codex/gpt-6.1-sol:medium]
+fallback_models: [openai-codex/gpt-6.2-sol:medium]
 max_retries: 0
 ---
 

@@ -154,8 +154,8 @@ class TestExistingRoutingUnchanged(unittest.TestCase):
     def test_premium_agents_are_untouched(self):
         expected = {
             "worker-luna": "openai/gpt-6-luna",
-            "worker-sol": "openai/gpt-6.1-sol",
-            "worker-astra": "openai/gpt-6-astra",
+            "worker-sol": "openai/gpt-6.2-sol",
+            "worker-astra": "openai/gpt-6.2-astra",
             "scout-luna": "openai/gpt-6-luna",
             "worker-hydrogen-high": "antigravity/gemini-4-hydrogen",
         }

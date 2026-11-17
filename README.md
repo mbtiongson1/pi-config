@@ -343,10 +343,10 @@ Advisors in Pi are specialized one-round decision agents for high-stakes technic
     `❌ **Insufficient context.** I need the following before I can advise: [list what's missing]`
   - **Structured Output**: Every evaluation returns four mandatory sections: `## Decision`, `## Reasoning`, `## Risks`, and `## Confidence`.
 - **Configured Advisor Roles**:
-  - `advisor-astra`: Pinned to `openai/gpt-6-astra:max` (or `openai-codex/gpt-6-astra:max`).
+  - `advisor-astra`: Pinned to `openai/gpt-6.2-astra:max` (or `openai-codex/gpt-6.2-astra:max`).
   - `advisor-argon`: Pinned to `antigravity/gemini-4-argon:max`.
   - *Fable Advisor Note*: In audit discovery, while `anthropic/claude-fable-5` was enabled in model settings and tracked in pricing catalogs, no dedicated `advisor-fable.md` agent file or prompt was authored on disk or committed to repository history.
-  - `agent-templates.json`: Maps the abstract role `"advisor"` to `openai--gpt-6-astra` at `thinkingLevel: "max"`.
+  - `agent-templates.json`: Maps the abstract role `"advisor"` to `openai--gpt-6.2-astra` at `thinkingLevel: "max"`.
 - **How Advisors are Invoked in Pi**:
   - Via subagent delegation:
     ```javascript

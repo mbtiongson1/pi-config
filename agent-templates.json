@@ -19,7 +19,7 @@
     "thinkingLevel": "low"
   },
   "advisor": {
-    "model": "openai--gpt-6-astra",
+    "model": "openai--gpt-6.2-astra",
     "thinkingLevel": "max"
   },
   "minimax": {

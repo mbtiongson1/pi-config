@@ -4,9 +4,9 @@ description: One-round expert advisor for high-stakes decisions. Requires fully 
 role: advisor
 tools: []
 spawns: false
-model: openai-codex/gpt-6-astra:max
+model: openai-codex/gpt-6.2-astra:max
 thinking: max
-fallback_models: [openai-codex/gpt-6-astra:max]
+fallback_models: [openai-codex/gpt-6.2-astra:max]
 max_retries: 0
 ---
 
